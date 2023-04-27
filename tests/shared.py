@@ -6,8 +6,13 @@ Author(s): David Marchant
 import os
 
 from distutils.dir_util import copy_tree
-from typing import List
+from typing import Any, Dict, List, Tuple, Union
 
+from meow_base.core.base_conductor import BaseConductor
+from meow_base.core.base_handler import BaseHandler
+from meow_base.core.base_monitor import BaseMonitor
+from meow_base.core.base_pattern import BasePattern
+from meow_base.core.base_recipe import BaseRecipe
 from meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
     DEFAULT_JOB_QUEUE_DIR, LOCK_EXT
 from meow_base.functionality.file_io import make_dir, rmtree
@@ -1420,3 +1425,50 @@ valid_recipe_one = JupyterNotebookRecipe(
     "recipe_one", BAREBONES_NOTEBOOK)
 valid_recipe_two = JupyterNotebookRecipe(
     "recipe_two", BAREBONES_NOTEBOOK)
+
+class SharedTestPattern(BasePattern):
+    def _is_valid_recipe(self, recipe: Any) -> None:
+        pass
+
+    def _is_valid_parameters(self, parameters: Any) -> None:
+        pass
+
+    def _is_valid_output(self, outputs: Any) -> None:
+        pass
+
+class SharedTestRecipe(BaseRecipe):
+    def _is_valid_recipe(self, recipe: Any) -> None:
+        pass
+
+    def _is_valid_parameters(self, parameters: Any) -> None:
+        pass
+
+    def _is_valid_requirements(self, requirements: Any) -> None:
+        pass
+
+class SharedTestMonitor(BaseMonitor):
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def _get_valid_pattern_types(self) -> List[type]:
+        return [SharedTestPattern]
+    
+    def _get_valid_recipe_types(self) -> List[type]:
+        return [SharedTestRecipe]
+
+class SharedTestHandler(BaseHandler):
+    def valid_handle_criteria(self, event: Dict[str, Any]) -> Tuple[bool, str]:
+        pass
+
+    def get_created_job_type(self) -> str:
+        pass
+
+    def create_job_recipe_file(self, job_dir: str, event: Dict[str, Any], params_dict: Dict[str, Any]) -> str:
+        pass
+
+class SharedTestConductor(BaseConductor):
+    def valid_execute_criteria(self, job:Dict[str,Any])->Tuple[bool,str]:
+        pass
