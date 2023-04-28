@@ -23,7 +23,7 @@ class BaseRecipeTests(unittest.TestCase):
         super().tearDown()
         teardown()
 
-    # Test that BaseRecipe instantiation
+    # Test BaseRecipe instantiation
     def testBaseRecipe(self)->None:
         with self.assertRaises(TypeError):
             BaseRecipe("name", "")
@@ -35,6 +35,15 @@ class BaseRecipeTests(unittest.TestCase):
 
         SharedTestRecipe("name", "")
 
+    # test name validation
+    def testValidName(self)->None:
+        SharedTestRecipe("name", "")
+
+        with self.assertRaises(ValueError):
+            SharedTestRecipe("", "")
+
+        with self.assertRaises(TypeError):
+            SharedTestRecipe(123, "")
 
 class BasePatternTests(unittest.TestCase):
     def setUp(self)->None:
@@ -45,7 +54,7 @@ class BasePatternTests(unittest.TestCase):
         super().tearDown()
         teardown()
 
-    # Test that BaseRecipe instantiation
+    # Test BasePattern instantiation
     def testBasePattern(self)->None:
         with self.assertRaises(TypeError):
             BasePattern("name", "", "", "")
@@ -56,6 +65,70 @@ class BasePatternTests(unittest.TestCase):
             EmptyPattern("name", "", "", "")
 
         SharedTestPattern("name", "", "", "")
+
+    # Test name validation
+    def testValidName(self)->None:
+        SharedTestPattern("name", "recipe")
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("", "recipe")
+
+        with self.assertRaises(TypeError):
+            SharedTestPattern(123, "recipe")
+
+    # test sweep validation
+    def testValidSweep(self)->None:
+        SharedTestPattern("name", "recipe", sweep={
+            "s1":{
+                    SWEEP_START: 10, SWEEP_STOP: 20, SWEEP_JUMP:5
+                }
+            }
+        )
+
+        with self.assertRaises(TypeError):
+            SharedTestPattern("name", "recipe", sweep={
+                SWEEP_START: 10, SWEEP_STOP: 20, SWEEP_JUMP:5
+                }
+            )
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("name", "recipe", sweep={
+                "s1":{
+                        SWEEP_START: 10, SWEEP_STOP: 10, SWEEP_JUMP:5
+                    }
+                }
+            )
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("name", "recipe", sweep={
+                "s1":{
+                        SWEEP_START: 10, SWEEP_STOP: 0, SWEEP_JUMP:5
+                    }
+                }
+            )
+
+        SharedTestPattern("name", "recipe", sweep={
+            "s1":{
+                    SWEEP_START: 10, SWEEP_STOP: 0, SWEEP_JUMP:-5
+                }
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("name", "recipe", sweep={
+                "s1":{
+                        SWEEP_START: 0, SWEEP_STOP: 10, SWEEP_JUMP:-5
+                    }
+                }
+            )
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("name", "recipe", sweep={
+                "s1":{
+                        SWEEP_START: 10, SWEEP_STOP: 10, SWEEP_JUMP:-5
+                    }
+                }
+            )
 
     # Test expansion of parameter sweeps
     def testBasePatternExpandSweeps(self)->None:
@@ -139,7 +212,7 @@ class BaseMonitorTests(unittest.TestCase):
         super().tearDown()
         teardown()
 
-    # Test that BaseMonitor instantiation
+    # Test BaseMonitor instantiation
     def testBaseMonitor(self)->None:
         with self.assertRaises(TypeError):
             BaseMonitor({}, {})
@@ -494,7 +567,7 @@ class BaseHandleTests(unittest.TestCase):
         super().tearDown()
         teardown()
 
-    # Test that BaseHandler instantiation
+    # Test BaseHandler instantiation
     def testBaseHandler(self)->None:
         with self.assertRaises(TypeError):
             BaseHandler()
@@ -518,7 +591,7 @@ class BaseConductorTests(unittest.TestCase):
         super().tearDown()
         teardown()
 
-    # Test that BaseConductor instantiation
+    # Test BaseConductor instantiation
     def testBaseConductor(self)->None:
         with self.assertRaises(TypeError):
             BaseConductor()
