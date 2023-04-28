@@ -19,43 +19,39 @@ from meow_base.core.vars import EVENT_PATH, EVENT_RULE, EVENT_TIME, \
     JOB_TYPE, STATUS_CREATING, SWEEP_JUMP, SWEEP_START, SWEEP_STOP
 from meow_base.functionality.naming import generate_job_id
 
-# mig trigger keyword replacements
+# core trigger keyword replacements
 KEYWORD_PATH = "{PATH}"
-KEYWORD_REL_PATH = "{REL_PATH}"
 KEYWORD_DIR = "{DIR}"
-KEYWORD_REL_DIR = "{REL_DIR}"
 KEYWORD_FILENAME = "{FILENAME}"
 KEYWORD_PREFIX = "{PREFIX}"
-KEYWORD_BASE = "{BASE}"
 KEYWORD_EXTENSION = "{EXTENSION}"
 KEYWORD_JOB = "{JOB}"
+
+DEFAULT_KEYWORDS = {
+    KEYWORD_PATH: "val.replace(KEYWORD_PATH, event[EVENT_PATH])",
+    KEYWORD_DIR: "val.replace(KEYWORD_DIR, dirname(event[EVENT_PATH]))",
+    KEYWORD_FILENAME: f"val.replace(KEYWORD_FILENAME, basename(event['{EVENT_PATH}']))",
+    KEYWORD_PREFIX: f"val.replace(KEYWORD_PREFIX, splitext(basename(event['{EVENT_PATH}']))[0])",
+    KEYWORD_EXTENSION: f"val.replace(KEYWORD_EXTENSION, splitext(basename(event['{EVENT_PATH}']))[1])",
+    KEYWORD_JOB: "val.replace(KEYWORD_JOB, job_id)",
+}
 
 
 # TODO make this generic for all event types, currently very tied to file 
 # events
-def replace_keywords(old_dict:Dict[str,str], job_id:str, src_path:str, 
-            monitor_base:str)->Dict[str,str]:
+def replace_keywords(old_dict:Dict[str,str], job_id:str, event:Dict[str,Any],
+        keywords:Dict[str,str]=DEFAULT_KEYWORDS)->Dict[str,str]:
     """Function to replace all MEOW magic words in a dictionary with dynamic 
     values."""
     new_dict = {}
 
-    filename = basename(src_path)
-    dir = dirname(src_path)
-    relativepath = relpath(src_path, monitor_base)
-    reldirname = dirname(relativepath)
-    (prefix, extension) = splitext(filename)
+    keywords = DEFAULT_KEYWORDS | event[EVENT_RULE].pattern.get_additional_replacement_keywords()
 
     for var, val in old_dict.items():
         if isinstance(val, str):
-            val = val.replace(KEYWORD_PATH, src_path)
-            val = val.replace(KEYWORD_REL_PATH, relativepath)
-            val = val.replace(KEYWORD_DIR, dir)
-            val = val.replace(KEYWORD_REL_DIR, reldirname)
-            val = val.replace(KEYWORD_FILENAME, filename)
-            val = val.replace(KEYWORD_PREFIX, prefix)
-            val = val.replace(KEYWORD_BASE, monitor_base)
-            val = val.replace(KEYWORD_EXTENSION, extension)
-            val = val.replace(KEYWORD_JOB, job_id)
+            for keyword, substitution in keywords.items():
+                if keyword in val:
+                    val = eval(substitution)
 
             new_dict[var] = val
         else:

@@ -8,6 +8,7 @@ Author(s): David Marchant
 
 import itertools
 
+from copy import deepcopy
 from typing import Any, Union, Tuple, Dict, List
 
 from meow_base.core.vars import VALID_PATTERN_NAME_CHARS, \
@@ -129,6 +130,32 @@ class BasePattern:
                         "value where the end point is smaller than the start."
                     )
 
+    def assemble_params_dict(self, event:Dict[str,Any]
+            )->Union[Dict[str,Any],List[Dict[str,Any]]]:
+        """Function to assemble a dictionary of job parameters from this 
+        pattern. If no parameter sweeps, then this will be a single dictionary 
+        of parameters, otherwise it will be a list of unique dictionaries for 
+        every combination of sweeps. This method should be extended by any 
+        inheriting pattern classes."""
+        yaml_dict = {}
+
+        for var, val in self.parameters.items():
+            yaml_dict[var] = val
+        for var, val in self.outputs.items():
+            yaml_dict[var] = val
+
+        if not self.sweep:
+            return yaml_dict
+
+        yaml_dict_list = []
+        values_list = self.expand_sweeps()
+        for values in values_list:
+            for value in values:
+                yaml_dict[value[0]] = value[1]
+            yaml_dict_list.append(deepcopy(yaml_dict))
+
+        return yaml_dict_list
+
     def expand_sweeps(self)->List[Tuple[str,Any]]:
         """Function to get all combinations of sweep parameters"""
         values_dict = {}
@@ -143,3 +170,6 @@ class BasePattern:
         # combine all combinations of sweep values
         return list(itertools.product(
             *[v for v in values_dict.values()]))
+
+    def get_additional_replacement_keywords(self):
+        return {}

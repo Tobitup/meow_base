@@ -1,17 +1,26 @@
 
+import os
 import unittest
  
 from multiprocessing import Pipe
+from threading import Event, Thread
+from time import sleep, time
 
 from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.base_handler import BaseHandler
 from meow_base.core.base_monitor import BaseMonitor
 from meow_base.core.base_pattern import BasePattern
 from meow_base.core.base_recipe import BaseRecipe
-from meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START
+from meow_base.core.rule import Rule
+from meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START, JOB_ID, \
+    JOB_EVENT, JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, \
+    JOB_CREATE_TIME, JOB_REQUIREMENTS, STATUS_CREATING, META_FILE, JOB_FILE, \
+    DEFAULT_JOB_QUEUE_DIR
+from meow_base.functionality.file_io import read_yaml
+from meow_base.functionality.meow import create_event
 from meow_base.patterns.file_event_pattern import FileEventPattern
 from shared import SharedTestConductor, SharedTestHandler, SharedTestMonitor, \
-    SharedTestPattern, SharedTestRecipe, setup, teardown
+    SharedTestPattern, SharedTestRecipe, TEST_DIR, setup, teardown
 
 
 class BaseRecipeTests(unittest.TestCase):
@@ -44,6 +53,7 @@ class BaseRecipeTests(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             SharedTestRecipe(123, "")
+
 
 class BasePatternTests(unittest.TestCase):
     def setUp(self)->None:
@@ -202,6 +212,65 @@ class BasePatternTests(unittest.TestCase):
                 values.remove(f"{val1}/{val2}")
         self.assertEqual(len(values), 0)
 
+    # Test assembly of parameter dicts
+    def testAssembleParamsDict(self)->None:
+        p1 = SharedTestPattern(
+            "name", 
+            "recipe", 
+            parameters={
+                'a': 1,
+                'b': 2
+            },
+            outputs={
+                'c': 3,
+                'd': 4
+            }
+        )
+
+        r = SharedTestRecipe("recipe", "")
+        rule = Rule(p1, r)
+        e = create_event("", "", rule, time())
+
+        result = p1.assemble_params_dict(e)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual({'a':1, 'b':2, 'c':3, 'd': 4}, result)
+
+        p2 = SharedTestPattern(
+            "name", 
+            "recipe", 
+            parameters={
+                'a': 1,
+                'b': 2
+            },
+            outputs={
+                'c': 3,
+                'd': 4
+            },
+            sweep={
+                "s1":{
+                    SWEEP_START: 1, SWEEP_STOP: 3, SWEEP_JUMP:1
+                },
+                "s2":{
+                    SWEEP_START: 1, SWEEP_STOP: 2, SWEEP_JUMP:1
+                },
+            }
+        )
+
+        result = p2.assemble_params_dict(e)
+
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 6)
+        for r in [
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 1, 's2': 1},
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 2, 's2': 1},
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 3, 's2': 1},
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 1, 's2': 2},
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 2, 's2': 2},
+            {'a':1, 'b':2, 'c':3, 'd': 4, 's1': 3, 's2': 2}
+        ]:
+            self.assertIn(r, result)
+
 
 class BaseMonitorTests(unittest.TestCase):
     def setUp(self)->None:
@@ -224,6 +293,62 @@ class BaseMonitorTests(unittest.TestCase):
             EmptyTestMonitor({}, {})
            
         SharedTestMonitor({}, {})
+
+    # Test name validation
+    def testValidName(self)->None:
+        SharedTestMonitor({}, {}, "name")
+
+        m = SharedTestMonitor({}, {}, "")
+        self.assertTrue(len(m.name) > 1)
+
+        with self.assertRaises(TypeError):
+            SharedTestMonitor({}, {}, 123)
+
+    # Test pattern validation
+    def testPatternValidation(self)->None:
+        SharedTestMonitor({}, {})
+
+        p1 = SharedTestPattern("name", "")
+        
+        with self.assertRaises(TypeError):
+            SharedTestMonitor(p1, {})
+
+        SharedTestMonitor({
+            p1.name: p1
+        }, {})
+
+        with self.assertRaises(KeyError):
+            SharedTestMonitor({
+                "p1": p1
+            }, {})
+
+        with self.assertRaises(TypeError):
+            SharedTestMonitor({
+                p1.name: 1
+            }, {})
+
+    # Test recipe validation
+    def testRecipeValidation(self)->None:
+        SharedTestMonitor({}, {})
+
+        r1 = SharedTestRecipe("name", "")
+        
+        with self.assertRaises(TypeError):
+            SharedTestMonitor({}, r1)
+
+        SharedTestMonitor({}, {
+            r1.name: r1
+        })
+
+        with self.assertRaises(KeyError):
+            SharedTestMonitor({}, {
+                "r1": r1
+            })
+
+        with self.assertRaises(TypeError):
+            SharedTestMonitor({}, {
+                r1.name: 1
+            })
 
     # Test new rules created as meow objects added
     def testBaseMonitorIdentifyNewRules(self)->None:
@@ -557,6 +682,7 @@ class BaseMonitorTests(unittest.TestCase):
             self.assertEqual(monitor._rules[k].recipe.name, v.recipe.name)
             self.assertEqual(monitor._rules[k].recipe.recipe, v.recipe.recipe)
 
+
 # TODO test for base functions
 class BaseHandleTests(unittest.TestCase):
     def setUp(self)->None:
@@ -580,6 +706,198 @@ class BaseHandleTests(unittest.TestCase):
 
         SharedTestHandler()
 
+    # Test name validation
+    def testValidName(self)->None:
+        SharedTestHandler(name="name")
+
+        m = SharedTestHandler(name="")
+        self.assertTrue(len(m.name) > 1)
+
+        with self.assertRaises(TypeError):
+            SharedTestHandler(name=123)
+
+    # Test name validation
+    def testValidPauseTime(self)->None:
+        SharedTestHandler(pause_time=1)
+
+        h = SharedTestHandler()
+        self.assertEqual(h.pause_time, 5)
+
+        with self.assertRaises(TypeError):
+            SharedTestHandler(name=123)
+
+    # Test prompting runner for event
+    def testPromptRunnerForEvent(self):
+        h = SharedTestHandler(pause_time=1)
+        from_handler, to_test = Pipe()
+        h.to_runner_event = to_test
+
+        result = []
+
+        def prompt_thread(handler, result):
+            result.append(handler.prompt_runner_for_event())
+
+        thread = Thread(target=prompt_thread, args=(h, result))
+        thread.start()
+        self.assertTrue(thread.is_alive())
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        from_handler.send("test")
+        sleep(1)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, ["test"])
+
+        result = []
+
+        thread = Thread(target=prompt_thread, args=(h, result))
+        thread.start()
+        self.assertTrue(thread.is_alive())
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        sleep(2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, [None])
+
+    # Test sending job notification to runner
+    def testSendJobToRunner(self):
+        h = SharedTestHandler()
+        from_handler, to_test = Pipe()
+        h.to_runner_job = to_test
+
+        h.send_job_to_runner("test")
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+
+        self.assertEqual(msg, "test")
+
+    # Test the main loop managing inter-process comms
+    def testMainLoop(self):
+        h = SharedTestHandler(pause_time=1)
+        from_handler, to_test = Pipe()
+        h.to_runner_event = to_test
+
+        stop_event = Event()
+
+        def main_loop_thread(handler, stop_event):
+            handler.main_loop(stop_event)
+
+        thread = Thread(target=main_loop_thread, args=(h, stop_event))
+        thread.start()
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        sleep(2)
+
+        self.assertTrue(thread.is_alive())
+
+        stop_event.set()
+
+        sleep(2)
+
+        self.assertFalse(thread.is_alive())
+
+    # Test creation of meta data dict
+    def testCreateJobMetaDataDict(self):
+        h = SharedTestHandler()
+        p = SharedTestPattern("p", "r")
+        r = SharedTestRecipe("r", "something")
+        rule = Rule(p, r)
+        e = create_event("test", "test", rule, time())
+
+        result = h.create_job_metadata_dict(e, {'p': 1})
+
+        self.assertIsInstance(result, dict)
+        print(result)
+        self.assertEqual(len(result), 10)
+
+        self.assertIn(JOB_ID, result)
+        self.assertIn(JOB_EVENT, result)
+        self.assertEqual(result[JOB_EVENT], e)
+        self.assertIn(JOB_TYPE, result)
+        self.assertEqual(result[JOB_TYPE], "test")
+        self.assertIn(JOB_PATTERN, result)
+        self.assertEqual(result[JOB_PATTERN], p.name)
+        self.assertIn(JOB_RECIPE, result)
+        self.assertEqual(result[JOB_RECIPE], r.name)
+        self.assertIn(JOB_RULE, result)
+        self.assertEqual(result[JOB_RULE], rule.name)
+        self.assertIn(JOB_STATUS, result)
+        self.assertEqual(result[JOB_STATUS], STATUS_CREATING)
+        self.assertIn(JOB_CREATE_TIME, result)
+        self.assertIn(JOB_REQUIREMENTS, result)
+        self.assertEqual(result[JOB_REQUIREMENTS], {})
+
+    # Test creation of meta data file
+    def testCreatJobMetaFile(self):
+        h = SharedTestHandler()
+        h.create_job_meta_file(TEST_DIR, {"test": "test"})
+
+        self.assertTrue(os.path.exists(os.path.join(TEST_DIR, META_FILE)))
+        yaml = read_yaml(os.path.join(TEST_DIR, META_FILE))
+        self.assertEqual(yaml, {"test": "test"})
+
+    # Test creation of core script file
+    def testCreateJobScriptFile(self):
+        h = SharedTestHandler()
+        h.create_job_script_file(TEST_DIR, "command")
+        
+        self.assertTrue(os.path.exists(os.path.join(TEST_DIR, JOB_FILE)))
+
+    # Test setting up job
+    def testSetupJob(self):
+        h = SharedTestHandler()
+        from_handler, to_test = Pipe()
+        h.to_runner_job = to_test
+        p = SharedTestPattern("p", "r")
+        r = SharedTestRecipe("r", "something")
+        rule = Rule(p, r)
+        e = create_event("test", "test", rule, time())
+
+        h.setup_job(e, {"p": 1})
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+
+        self.assertIsInstance(msg, str)
+        self.assertIn(DEFAULT_JOB_QUEUE_DIR, msg)
+
+        self.assertTrue(os.path.exists(os.path.join(msg, META_FILE)))
+        self.assertTrue(os.path.exists(os.path.join(msg, JOB_FILE)))
+
+    # Test handling
+    def testHandle(self):
+        h = SharedTestHandler()
+        from_handler, to_test = Pipe()
+        h.to_runner_job = to_test
+        p = SharedTestPattern("p", "r")
+        r = SharedTestRecipe("r", "something")
+        rule = Rule(p, r)
+        e = create_event("test", "test", rule, time())
+
+        h.handle(e)
+
+        if from_handler.poll(3):
+            msg = from_handler.recv()
+
+        self.assertIsInstance(msg, str)
+        self.assertIn(DEFAULT_JOB_QUEUE_DIR, msg)
+
+        self.assertTrue(os.path.exists(os.path.join(msg, META_FILE)))
+        self.assertTrue(os.path.exists(os.path.join(msg, JOB_FILE)))
 
 # TODO test for base functions
 class BaseConductorTests(unittest.TestCase):

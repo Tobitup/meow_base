@@ -1464,10 +1464,10 @@ class SharedTestHandler(BaseHandler):
         pass
 
     def get_created_job_type(self) -> str:
-        pass
+        return "test"
 
     def create_job_recipe_file(self, job_dir: str, event: Dict[str, Any], params_dict: Dict[str, Any]) -> str:
-        pass
+        return "command"
 
 class SharedTestConductor(BaseConductor):
     def valid_execute_criteria(self, job:Dict[str,Any])->Tuple[bool,str]:

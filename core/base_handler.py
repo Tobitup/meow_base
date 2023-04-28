@@ -15,13 +15,13 @@ from time import sleep
 
 from meow_base.core.vars import VALID_CHANNELS, EVENT_RULE, EVENT_PATH, \
     VALID_HANDLER_NAME_CHARS, META_FILE, JOB_ID, JOB_FILE, JOB_PARAMETERS, \
-    get_drt_imp_msg
+    DEFAULT_JOB_QUEUE_DIR ,get_drt_imp_msg
 from meow_base.core.meow import valid_event
 from meow_base.patterns.file_event_pattern import WATCHDOG_HASH
 from meow_base.functionality.file_io import threadsafe_write_status, \
     threadsafe_update_status, make_dir, write_file, lines_to_string
 from meow_base.functionality.validation import check_implementation, \
-    valid_string, valid_natural
+    valid_string, valid_natural, valid_dir_path
 from meow_base.functionality.meow import create_job_metadata_dict, \
     replace_keywords
 from meow_base.functionality.naming import generate_handler_id
@@ -47,7 +47,8 @@ class BaseHandler:
     # A count, for how long a handler will wait if told that there are no 
     # events in the runner, before polling again. Default is 5 seconds.
     pause_time: int
-    def __init__(self, name:str='', pause_time:int=5)->None:
+    def __init__(self, name:str='', job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR, 
+            pause_time:int=5)->None:
         """BaseHandler Constructor. This will check that any class inheriting 
         from it implements its validation functions."""
         check_implementation(type(self).valid_handle_criteria, BaseHandler)
@@ -57,6 +58,8 @@ class BaseHandler:
             name = generate_handler_id()
         self._is_valid_name(name)
         self.name = name
+        self._is_valid_job_queue_dir(job_queue_dir)
+        self.job_queue_dir = job_queue_dir
         self._is_valid_pause_time(pause_time)
         self.pause_time = pause_time
 
@@ -79,6 +82,14 @@ class BaseHandler:
         automatically called during initialisation. This does not need to be 
         overridden by child classes."""
         valid_natural(pause_time, hint="BaseHandler.pause_time")
+
+    # TODO test me
+    def _is_valid_job_queue_dir(self, job_queue_dir)->None:
+        """Validation check for 'job_queue_dir' variable from main 
+        constructor."""
+        valid_dir_path(job_queue_dir, must_exist=False)
+        if not os.path.exists(job_queue_dir):
+            make_dir(job_queue_dir)
 
     def prompt_runner_for_event(self)->Union[Dict[str,Any],Any]:
         self.to_runner_event.send(1)
@@ -153,23 +164,13 @@ class BaseHandler:
         rule = event[EVENT_RULE]
 
         # Assemble job parameters dict from pattern variables
-        yaml_dict = {}
-        for var, val in rule.pattern.parameters.items():
-            yaml_dict[var] = val
-        for var, val in rule.pattern.outputs.items():
-            yaml_dict[var] = val
-        yaml_dict[rule.pattern.triggering_file] = event[EVENT_PATH]
+        params = rule.pattern.assemble_params_dict(event)
 
-        # If no parameter sweeps, then one job will suffice
-        if not rule.pattern.sweep:
-            self.setup_job(event, yaml_dict)
+        if isinstance(params, list):
+            for param in params:
+                self.setup_job(event, param)
         else:
-            # If parameter sweeps, then many jobs created
-            values_list = rule.pattern.expand_sweeps()
-            for values in values_list:
-                for value in values:
-                    yaml_dict[value[0]] = value[1]
-                self.setup_job(event, yaml_dict)
+            self.setup_job(event, params)
 
     def setup_job(self, event:Dict[str,Any], params_dict:Dict[str,Any])->None:
         """Function to set up new job dict and send it to the runner to be 
@@ -184,8 +185,7 @@ class BaseHandler:
         params_dict = replace_keywords(
             params_dict,
             meow_job[JOB_ID],
-            event[EVENT_PATH],
-            event[WATCHDOG_BASE]
+            event
         )
 
         # Create a base job directory

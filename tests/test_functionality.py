@@ -24,9 +24,9 @@ from meow_base.functionality.file_io import lines_to_string, make_dir, \
     write_notebook, write_yaml, threadsafe_read_status, \
     threadsafe_update_status, threadsafe_write_status
 from meow_base.functionality.hashing import get_hash
-from meow_base.functionality.meow import KEYWORD_BASE, KEYWORD_DIR, \
+from meow_base.functionality.meow import KEYWORD_DIR, \
     KEYWORD_EXTENSION, KEYWORD_FILENAME, KEYWORD_JOB, KEYWORD_PATH, \
-    KEYWORD_PREFIX, KEYWORD_REL_DIR, KEYWORD_REL_PATH, \
+    KEYWORD_PREFIX, \
     create_event, create_job_metadata_dict, create_rule, create_rules, \
     replace_keywords, create_parameter_sweep
 from meow_base.functionality.naming import _generate_id
@@ -37,11 +37,13 @@ from meow_base.functionality.requirements import REQUIREMENT_PYTHON, \
     REQ_PYTHON_ENVIRONMENT, REQ_PYTHON_MODULES, REQ_PYTHON_VERSION, \
     create_python_requirements, check_requirements
 from meow_base.patterns.file_event_pattern import FileEventPattern, \
-    EVENT_TYPE_WATCHDOG, WATCHDOG_BASE, WATCHDOG_HASH
+    EVENT_TYPE_WATCHDOG, WATCHDOG_BASE, WATCHDOG_HASH, KEYWORD_BASE, \
+    KEYWORD_REL_DIR, KEYWORD_REL_PATH, create_watchdog_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
-from shared import TEST_MONITOR_BASE, COMPLETE_NOTEBOOK, APPENDING_NOTEBOOK, \
-    COMPLETE_PYTHON_SCRIPT, valid_recipe_two, valid_recipe_one, \
-    valid_pattern_one, valid_pattern_two, setup, teardown
+from shared import SharedTestPattern, SharedTestRecipe, TEST_MONITOR_BASE, \
+    COMPLETE_NOTEBOOK, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, \
+    valid_recipe_two, valid_recipe_one, valid_pattern_one, valid_pattern_two, \
+    setup, teardown
 
 class DebugTests(unittest.TestCase):
     def setUp(self)->None:
@@ -730,11 +732,22 @@ class MeowTests(unittest.TestCase):
             "N": 1
         }
 
+        p = FileEventPattern("p", "tp", "r", "tf")
+        r = SharedTestRecipe("r", "something")
+        rule = Rule(p, r)
+
+        event = create_watchdog_event(
+            os.path.join("base", "src", "dir", "file.ext"),
+            rule,
+            os.path.join("base", "monitor", "dir"),
+            time(),
+            "hash"
+        )
+
         replaced = replace_keywords(
             test_dict, 
             "job_id", 
-            os.path.join("base", "src", "dir", "file.ext"), 
-            os.path.join("base", "monitor", "dir")
+            event
         )
 
         self.assertIsInstance(replaced, dict)

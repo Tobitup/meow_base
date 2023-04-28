@@ -28,7 +28,7 @@ from meow_base.core.vars import VALID_RECIPE_NAME_CHARS, \
     VALID_VARIABLE_NAME_CHARS, FILE_EVENTS, FILE_CREATE_EVENT, \
     FILE_MODIFY_EVENT, FILE_MOVED_EVENT, DEBUG_INFO, DIR_EVENTS, \
     FILE_RETROACTIVE_EVENT, SHA256, VALID_PATH_CHARS, FILE_CLOSED_EVENT, \
-    DIR_RETROACTIVE_EVENT
+    DIR_RETROACTIVE_EVENT, EVENT_PATH
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.hashing import get_hash
 from meow_base.functionality.meow import create_event
@@ -41,6 +41,11 @@ _DEFAULT_MASK = [
     FILE_RETROACTIVE_EVENT,
     FILE_CLOSED_EVENT
 ]
+
+# file event trigger keyword replacements
+KEYWORD_BASE = "{BASE}"
+KEYWORD_REL_PATH = "{REL_PATH}"
+KEYWORD_REL_DIR = "{REL_DIR}"
 
 # watchdog events
 EVENT_TYPE_WATCHDOG = "watchdog"
@@ -181,6 +186,27 @@ class FileEventPattern(BasePattern):
         """Validation check for 'sweep' variable from main constructor."""
         return super()._is_valid_sweep(sweep)
 
+    #TODO test me
+    def assemble_params_dict(self, event:Dict[str,Any])->Dict[str,Any]|List[Dict[str,Any]]:
+        base_params = super().assemble_params_dict(event)
+        if isinstance(base_params, list):
+            for i in range(len(base_params)):
+                base_params[i][self.triggering_file] = event[EVENT_PATH]
+        else:
+            base_params[self.triggering_file] = event[EVENT_PATH]
+        return base_params
+    
+    #TODO test me
+    def get_additional_replacement_keywords(self):
+        return {
+            KEYWORD_BASE: 
+                f"val.replace('{KEYWORD_BASE}', event['{WATCHDOG_BASE}'])",
+            KEYWORD_REL_PATH: 
+                f"val.replace('{KEYWORD_REL_PATH}', relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}']))",
+            KEYWORD_REL_DIR: 
+                f"val.replace('{KEYWORD_REL_DIR}', dirname(relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}'])))"
+        }
+    
 
 class WatchdogMonitor(BaseMonitor):
     # A handler object, to catch events

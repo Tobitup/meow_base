@@ -68,9 +68,8 @@ class BashHandler(BaseHandler):
         handle execution, but is invoked according to a factory pattern using 
         the handle function. Note that if this handler is given to a MeowRunner
         object, the job_queue_dir will be overwridden by its"""
-        super().__init__(name=name, pause_time=pause_time)
-        self._is_valid_job_queue_dir(job_queue_dir)
-        self.job_queue_dir = job_queue_dir
+        super().__init__(name=name, job_queue_dir=job_queue_dir, 
+                pause_time=pause_time)
         self._print_target, self.debug_level = setup_debugging(print, logging)
         print_debug(self._print_target, self.debug_level, 
             "Created new BashHandler instance", DEBUG_INFO)
@@ -92,13 +91,6 @@ class BashHandler(BaseHandler):
                 return True, ""
         except Exception as e:
             return False, str(e)
-
-    def _is_valid_job_queue_dir(self, job_queue_dir)->None:
-        """Validation check for 'job_queue_dir' variable from main 
-        constructor."""
-        valid_dir_path(job_queue_dir, must_exist=False)
-        if not os.path.exists(job_queue_dir):
-            make_dir(job_queue_dir)
 
     def get_created_job_type(self)->str:
         return JOB_TYPE_BASH
