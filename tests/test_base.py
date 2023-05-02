@@ -683,7 +683,6 @@ class BaseMonitorTests(unittest.TestCase):
             self.assertEqual(monitor._rules[k].recipe.recipe, v.recipe.recipe)
 
 
-# TODO test for base functions
 class BaseHandleTests(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()
@@ -725,6 +724,20 @@ class BaseHandleTests(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             SharedTestHandler(name=123)
+
+    # test creation of job queue dir
+    def testValidJobQueueDir(self)->None:
+        test_dir = os.path.join(TEST_DIR, "test")
+        self.assertFalse(os.path.exists(test_dir))
+
+        with self.assertRaises(ValueError):
+            SharedTestHandler(job_queue_dir="")
+        
+        with self.assertRaises(TypeError):
+            SharedTestHandler(job_queue_dir=1)
+
+        SharedTestHandler(job_queue_dir=test_dir)
+        self.assertTrue(os.path.exists(test_dir)) 
 
     # Test prompting runner for event
     def testPromptRunnerForEvent(self):
@@ -921,3 +934,131 @@ class BaseConductorTests(unittest.TestCase):
             EmptyTestConductor()
 
         SharedTestConductor()
+
+    # Test name validation
+    def testValidName(self)->None:
+        SharedTestConductor(name="name")
+
+        m = SharedTestConductor(name="")
+        self.assertTrue(len(m.name) > 1)
+
+        with self.assertRaises(TypeError):
+            SharedTestConductor(name=123)
+
+    # Test pause time validation
+    def testValidPauseTime(self)->None:
+        SharedTestConductor(pause_time=1)
+
+        c = SharedTestConductor()
+        self.assertEqual(c.pause_time, 5)
+
+        with self.assertRaises(TypeError):
+            SharedTestConductor(name=123)       
+
+    # Test job queue dir validation
+    def testValidJobQueueDir(self)->None:
+        test_dir = os.path.join(TEST_DIR, "test")
+        self.assertFalse(os.path.exists(test_dir))
+
+        with self.assertRaises(ValueError):
+            SharedTestConductor(job_queue_dir="")
+        
+        with self.assertRaises(TypeError):
+            SharedTestConductor(job_queue_dir=1)
+
+        SharedTestConductor(job_queue_dir=test_dir)
+        self.assertTrue(os.path.exists(test_dir))        
+
+    # Test job output dir validation
+    def testValidJobOutputDir(self)->None:
+        test_dir = os.path.join(TEST_DIR, "test")
+        self.assertFalse(os.path.exists(test_dir))
+
+        with self.assertRaises(ValueError):
+            SharedTestConductor(job_output_dir="")
+        
+        with self.assertRaises(TypeError):
+            SharedTestConductor(job_output_dir=1)
+
+        SharedTestConductor(job_output_dir=test_dir)
+        self.assertTrue(os.path.exists(test_dir)) 
+
+    # Test prompting runner for job        
+    def testPromptRunnerForJob(self)->None:
+        c = SharedTestConductor(pause_time=1)
+        from_conductor, to_test = Pipe()
+        c.to_runner_job = to_test
+
+        result = []
+
+        def prompt_thread(c, result):
+            result.append(c.prompt_runner_for_job())
+
+        thread = Thread(target=prompt_thread, args=(c, result))
+        thread.start()
+        self.assertTrue(thread.is_alive())
+
+        if from_conductor.poll(3):
+            msg = from_conductor.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        from_conductor.send("test")
+        sleep(1)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, ["test"])
+
+        result = []
+
+        thread = Thread(target=prompt_thread, args=(c, result))
+        thread.start()
+        self.assertTrue(thread.is_alive())
+
+        if from_conductor.poll(3):
+            msg = from_conductor.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        sleep(2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, [None])
+
+    # Test conductor main loop
+    def testMainLoop(self)->None:
+        h = SharedTestConductor(pause_time=1)
+        from_conductor, to_test = Pipe()
+        h.to_runner_job = to_test
+
+        stop_event = Event()
+
+        def main_loop_thread(c, stop_event):
+            c.main_loop(stop_event)
+
+        thread = Thread(target=main_loop_thread, args=(h, stop_event))
+        thread.start()
+
+        if from_conductor.poll(3):
+            msg = from_conductor.recv()
+        self.assertEqual(msg, 1)
+        self.assertTrue(thread.is_alive())
+
+        sleep(2)
+
+        self.assertTrue(thread.is_alive())
+
+        stop_event.set()
+
+        sleep(2)
+
+        self.assertFalse(thread.is_alive())
+
+# TODO implement me
+#    def testRunJob(self)->None:
+
+# TODO implement me
+#    def testExecute(self)->None:
+
+        
+

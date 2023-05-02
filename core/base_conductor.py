@@ -19,9 +19,10 @@ from meow_base.core.meow import valid_job
 from meow_base.core.vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
     JOB_STATUS, JOB_START_TIME, META_FILE, STATUS_RUNNING, STATUS_DONE , \
     BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
+    DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, \
     get_drt_imp_msg
 from meow_base.functionality.file_io import write_file, \
-    threadsafe_read_status, threadsafe_update_status
+    threadsafe_read_status, threadsafe_update_status, make_dir
 from meow_base.functionality.validation import check_implementation, \
     valid_string, valid_existing_dir_path, valid_natural, valid_dir_path
 from meow_base.functionality.naming import generate_conductor_id
@@ -47,7 +48,9 @@ class BaseConductor:
     # A count, for how long a conductor will wait if told that there are no 
     # jobs in the runner, before polling again. Default is 5 seconds.
     pause_time: int
-    def __init__(self, name:str="", pause_time:int=5)->None:
+    def __init__(self, job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR, 
+            job_output_dir:str=DEFAULT_JOB_OUTPUT_DIR, name:str="", 
+            pause_time:int=5)->None:
         """BaseConductor Constructor. This will check that any class inheriting
         from it implements its validation functions."""
         check_implementation(type(self).valid_execute_criteria, BaseConductor)
@@ -55,6 +58,10 @@ class BaseConductor:
             name = generate_conductor_id()
         self._is_valid_name(name)
         self.name = name    
+        self._is_valid_job_queue_dir(job_queue_dir)
+        self.job_queue_dir = job_queue_dir
+        self._is_valid_job_output_dir(job_output_dir)
+        self.job_output_dir = job_output_dir
         self._is_valid_pause_time(pause_time)
         self.pause_time = pause_time
 
@@ -77,6 +84,20 @@ class BaseConductor:
         automatically called during initialisation. This does not need to be 
         overridden by child classes."""
         valid_natural(pause_time, hint="BaseHandler.pause_time")
+
+    def _is_valid_job_queue_dir(self, job_queue_dir)->None:
+        """Validation check for 'job_queue_dir' variable from main 
+        constructor."""
+        valid_dir_path(job_queue_dir, must_exist=False)
+        if not os.path.exists(job_queue_dir):
+            make_dir(job_queue_dir)
+
+    def _is_valid_job_output_dir(self, job_output_dir)->None:
+        """Validation check for 'job_output_dir' variable from main 
+        constructor."""
+        valid_dir_path(job_output_dir, must_exist=False)
+        if not os.path.exists(job_output_dir):
+            make_dir(job_output_dir)
 
     def prompt_runner_for_job(self)->Union[Dict[str,Any],Any]:
         self.to_runner_job.send(1)
