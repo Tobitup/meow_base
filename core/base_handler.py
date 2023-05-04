@@ -15,7 +15,8 @@ from time import sleep
 
 from meow_base.core.vars import VALID_CHANNELS, EVENT_RULE, EVENT_PATH, \
     VALID_HANDLER_NAME_CHARS, META_FILE, JOB_ID, JOB_FILE, JOB_PARAMETERS, \
-    DEFAULT_JOB_QUEUE_DIR ,get_drt_imp_msg
+    DEFAULT_JOB_QUEUE_DIR, JOB_RECIPE_COMMAND, JOB_SCRIPT_COMMAND, \
+    get_drt_imp_msg
 from meow_base.core.meow import valid_event
 from meow_base.patterns.file_event_pattern import WATCHDOG_HASH
 from meow_base.functionality.file_io import threadsafe_write_status, \
@@ -180,7 +181,6 @@ class BaseHandler:
 
         # Get updated job parameters
         # TODO replace this with generic implementation
-        from meow_base.patterns.file_event_pattern import WATCHDOG_BASE
         params_dict = replace_keywords(
             params_dict,
             meow_job[JOB_ID],
@@ -203,8 +203,8 @@ class BaseHandler:
         threadsafe_update_status(
             {
                 # TODO make me not tmp variables and update job dict validation
-                "tmp recipe command": recipe_command,
-                "tmp script command": script_command
+                JOB_RECIPE_COMMAND: recipe_command,
+                JOB_SCRIPT_COMMAND: script_command
             }, 
             meta_file
         )

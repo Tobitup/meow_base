@@ -198,7 +198,6 @@ class MeowRunner:
                     # Recieved a request for a job
                     if isinstance(component, BaseConductor):
                         valid = False
-                        print(f"Got request for job")
                         for job_dir in self.job_queue:
                             try:
                                 metafile = os.path.join(job_dir, META_FILE)

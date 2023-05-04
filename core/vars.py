@@ -120,6 +120,8 @@ JOB_END_TIME = "end"
 JOB_ERROR = "error"
 JOB_REQUIREMENTS = "requirements"
 JOB_PARAMETERS = "parameters"
+JOB_SCRIPT_COMMAND = "script_command"
+JOB_RECIPE_COMMAND = "recipe_command"
 
 # job statuses
 STATUS_CREATING = "creating"

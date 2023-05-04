@@ -13,7 +13,7 @@ from meow_base.core.vars import JOB_TYPE_PYTHON, SHA256, \
     JOB_EVENT, META_FILE, JOB_STATUS, JOB_ERROR, JOB_TYPE, \
     JOB_PATTERN, STATUS_DONE, JOB_TYPE_PAPERMILL, JOB_RECIPE, JOB_RULE, \
     JOB_CREATE_TIME, JOB_REQUIREMENTS, EVENT_PATH, EVENT_RULE, EVENT_TYPE, \
-    JOB_TYPE_BASH, JOB_FILE
+    JOB_TYPE_BASH, JOB_FILE, JOB_SCRIPT_COMMAND
 from meow_base.conductors import LocalPythonConductor, LocalBashConductor
 from meow_base.functionality.file_io import read_file, read_yaml, write_file, \
     write_yaml, lines_to_string, make_dir, threadsafe_read_status
@@ -645,7 +645,7 @@ class BashTests(unittest.TestCase):
         for f in [META_FILE, JOB_FILE]:
             self.assertTrue(os.path.exists(os.path.join(job_output_dir, f)))
         job = threadsafe_read_status(os.path.join(job_output_dir, META_FILE))
-        self.assertTrue(os.path.exists(os.path.join(job_output_dir, job["tmp script command"])))
+        self.assertTrue(os.path.exists(os.path.join(job_output_dir, job[JOB_SCRIPT_COMMAND])))
 
         self.assertTrue(os.path.exists(
             os.path.join(job_output_dir, )))

@@ -19,7 +19,7 @@ from meow_base.core.meow import valid_job
 from meow_base.core.vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
     JOB_STATUS, JOB_START_TIME, META_FILE, STATUS_RUNNING, STATUS_DONE , \
     BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
-    DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, \
+    DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, JOB_SCRIPT_COMMAND, \
     get_drt_imp_msg
 from meow_base.functionality.file_io import write_file, \
     threadsafe_read_status, threadsafe_update_status, make_dir
@@ -197,7 +197,7 @@ class BaseConductor:
         if not abort:
             try:
                 result = subprocess.call(
-                    os.path.join(job_dir, job["tmp script command"]), 
+                    os.path.join(job_dir, job[JOB_SCRIPT_COMMAND]), 
                     cwd="."
                 )
 
