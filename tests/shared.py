@@ -6,7 +6,7 @@ Author(s): David Marchant
 import os
 
 from distutils.dir_util import copy_tree
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 from meow_base.core.base_conductor import BaseConductor
 from meow_base.core.base_handler import BaseHandler

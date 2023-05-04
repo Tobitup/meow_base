@@ -6,8 +6,6 @@ execute Bash jobs on the local resource.
 Author(s): David Marchant
 """
 
-import os
-
 from typing import Any, Dict, Tuple
 
 from meow_base.core.base_conductor import BaseConductor

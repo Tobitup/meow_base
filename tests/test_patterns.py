@@ -3,7 +3,6 @@ import io
 import os
 import unittest
 
-from datetime import datetime
 from multiprocessing import Pipe
 from time import sleep, time
 

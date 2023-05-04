@@ -5,7 +5,6 @@ Author(s): David Marchant
 """
 
 from datetime import datetime
-from os.path import basename, dirname, relpath, splitext
 from typing import Any, Dict, Union, List
 
 from meow_base.core.base_pattern import BasePattern

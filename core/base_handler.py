@@ -83,7 +83,6 @@ class BaseHandler:
         overridden by child classes."""
         valid_natural(pause_time, hint="BaseHandler.pause_time")
 
-    # TODO test me
     def _is_valid_job_queue_dir(self, job_queue_dir)->None:
         """Validation check for 'job_queue_dir' variable from main 
         constructor."""
