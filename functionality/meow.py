@@ -6,6 +6,8 @@ Author(s): David Marchant
 
 from datetime import datetime
 from typing import Any, Dict, Union, List
+# Necessary for keyword replacement
+from os.path import basename, dirname, splitext
 
 from meow_base.core.base_pattern import BasePattern
 from meow_base.core.base_recipe import BaseRecipe
@@ -13,7 +15,7 @@ from meow_base.core.rule import Rule
 from meow_base.functionality.validation import check_type, valid_dict, \
     valid_list
 from meow_base.core.vars import EVENT_PATH, EVENT_RULE, EVENT_TIME, \
-    EVENT_TYPE, JOB_CREATE_TIME, JOB_EVENT, JOB_ID, \
+    EVENT_TYPE, JOB_CREATE_TIME, JOB_EVENT, JOB_ID, JOB_NOTIFICATIONS, \
     JOB_PATTERN, JOB_RECIPE, JOB_REQUIREMENTS, JOB_RULE, JOB_STATUS, \
     JOB_TYPE, STATUS_CREATING, SWEEP_JUMP, SWEEP_START, SWEEP_STOP
 from meow_base.functionality.naming import generate_job_id
@@ -44,12 +46,18 @@ def replace_keywords(old_dict:Dict[str,str], job_id:str, event:Dict[str,Any],
     values."""
     new_dict = {}
 
-    keywords = DEFAULT_KEYWORDS | event[EVENT_RULE].pattern.get_additional_replacement_keywords()
+    new_keywords, req_imports = event[EVENT_RULE].pattern.get_additional_replacement_keywords()
+
+    for req_import in req_imports:
+        exec(req_import)
+
+    keywords = DEFAULT_KEYWORDS | new_keywords
 
     for var, val in old_dict.items():
         if isinstance(val, str):
             for keyword, substitution in keywords.items():
                 if keyword in val:
+                    print(substitution)
                     val = eval(substitution)
 
             new_dict[var] = val
@@ -122,7 +130,8 @@ def create_job_metadata_dict(job_type:str, event:Dict[str,Any],
         JOB_RULE: event[EVENT_RULE].name,
         JOB_STATUS: STATUS_CREATING,
         JOB_CREATE_TIME: datetime.now(),
-        JOB_REQUIREMENTS: event[EVENT_RULE].recipe.requirements
+        JOB_REQUIREMENTS: event[EVENT_RULE].recipe.requirements,
+        JOB_NOTIFICATIONS: event[EVENT_RULE].pattern.notifications
     }
 
     return {**extras, **job_dict}

@@ -15,13 +15,16 @@ from meow_base.core.vars import JOB_TYPE_PYTHON, JOB_TYPE, \
 class LocalPythonConductor(BaseConductor):
     def __init__(self, job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR, 
             job_output_dir:str=DEFAULT_JOB_OUTPUT_DIR, name:str="", 
-            pause_time:int=5)->None:
+            pause_time:int=5, notification_email:str="", 
+            notification_email_smtp:str="")->None:
         """LocalPythonConductor Constructor. This should be used to execute 
         Python jobs, and will then pass any internal job runner files to the 
         output directory. Note that if this handler is given to a MeowRunner
         object, the job_queue_dir and job_output_dir will be overwridden."""
         super().__init__(name=name, job_output_dir=job_output_dir,
-            job_queue_dir=job_queue_dir, pause_time=pause_time)
+            job_queue_dir=job_queue_dir, pause_time=pause_time, 
+            notification_email=notification_email, 
+            notification_email_smtp=notification_email_smtp)
         self._is_valid_job_queue_dir(job_queue_dir)
         self.job_queue_dir = job_queue_dir
         self._is_valid_job_output_dir(job_output_dir)

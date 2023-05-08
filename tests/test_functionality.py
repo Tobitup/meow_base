@@ -4,6 +4,7 @@ import json
 import unittest
 import os
 
+from aiosmtpd.controller import Controller
 from datetime import datetime
 from multiprocessing import Pipe, Queue
 from os.path import basename
@@ -30,6 +31,7 @@ from meow_base.functionality.meow import KEYWORD_DIR, \
     create_event, create_job_metadata_dict, create_rule, create_rules, \
     replace_keywords, create_parameter_sweep
 from meow_base.functionality.naming import _generate_id
+from meow_base.functionality.notifications import send_email
 from meow_base.functionality.parameterisation import \
     parameterize_jupyter_notebook, parameterize_python_script
 from meow_base.functionality.process_io import wait
@@ -40,7 +42,7 @@ from meow_base.patterns.file_event_pattern import FileEventPattern, \
     EVENT_TYPE_WATCHDOG, WATCHDOG_BASE, WATCHDOG_HASH, KEYWORD_BASE, \
     KEYWORD_REL_DIR, KEYWORD_REL_PATH, create_watchdog_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
-from shared import SharedTestPattern, SharedTestRecipe, TEST_MONITOR_BASE, \
+from shared import EmailHandler, SharedTestRecipe, TEST_MONITOR_BASE, \
     COMPLETE_NOTEBOOK, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, \
     valid_recipe_two, valid_recipe_one, valid_pattern_one, valid_pattern_two, \
     setup, teardown
@@ -895,6 +897,41 @@ class NamingTests(unittest.TestCase):
         prefix_id = _generate_id(prefix="Test")
         self.assertEqual(len(prefix_id), 16)
         self.assertTrue(prefix_id.startswith("Test"))
+
+
+class NotificationTests(unittest.TestCase):
+    def setUp(self)->None:
+        super().setUp()
+        setup()
+
+    def tearDown(self)->None:
+        super().tearDown()
+        teardown()
+
+    # Test that send email sends emails   
+    def testSendEmail(self)->None:
+        controller = Controller(EmailHandler(), hostname="localhost", port=1025)
+        controller.start()
+
+        self.assertEqual(len(controller.handler.messages), 0)
+
+        send_email(
+            "localhost:1025",
+            "sender@localhost",
+            "reciever@localhost",
+            "test test test"
+        )
+
+        sleep(1)
+
+        controller.stop()
+        self.assertEqual(len(controller.handler.messages), 1)
+        self.assertEqual(
+            controller.handler.messages[0].mail_from, "sender@localhost")
+        self.assertEqual(
+            controller.handler.messages[0].rcpt_tos, ["reciever@localhost"])
+        self.assertEqual(
+            controller.handler.messages[0].content, b"test test test\r\n")
 
 
 class ParameterisationTests(unittest.TestCase):

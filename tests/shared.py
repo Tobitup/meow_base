@@ -1472,3 +1472,17 @@ class SharedTestHandler(BaseHandler):
 class SharedTestConductor(BaseConductor):
     def valid_execute_criteria(self, job:Dict[str,Any])->Tuple[bool,str]:
         pass
+
+class EmailHandler:
+    def __init__(self) -> None:
+        self.messages = []
+
+    async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
+        if not address.endswith('localhost'):
+            return '550 not relaying to that domain'
+        envelope.rcpt_tos.append(address)
+        return '250 OK'
+    
+    async def handle_DATA(self, server, session, envelope):
+        self.messages.append(envelope)
+        return '250 Message accepted for delivery'

@@ -13,7 +13,7 @@ import os
 from fnmatch import translate
 from re import match
 from time import time, sleep
-from typing import Any, Union, Dict, List
+from typing import Any, Union, Dict, List, Tuple
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 
@@ -89,10 +89,11 @@ class FileEventPattern(BasePattern):
     def __init__(self, name:str, triggering_path:str, recipe:str, 
             triggering_file:str, event_mask:List[str]=_DEFAULT_MASK, 
             parameters:Dict[str,Any]={}, outputs:Dict[str,Any]={}, 
-            sweep:Dict[str,Any]={}):
+            sweep:Dict[str,Any]={}, notifications:Dict[str,Any]={}):
         """FileEventPattern Constructor. This is used to match against file 
         system events, as caught by the python watchdog module."""
-        super().__init__(name, recipe, parameters, outputs, sweep)
+        super().__init__(name, recipe, parameters=parameters, outputs=outputs, 
+            sweep=sweep, notifications=notifications)
         self._is_valid_triggering_path(triggering_path)
         self.triggering_path = triggering_path
         self._is_valid_triggering_file(triggering_file)
@@ -197,15 +198,19 @@ class FileEventPattern(BasePattern):
         return base_params
     
     #TODO test me
-    def get_additional_replacement_keywords(self):
-        return {
+    def get_additional_replacement_keywords(self
+            )->Tuple[Dict[str,str],List[str]]:
+        return ({
             KEYWORD_BASE: 
                 f"val.replace('{KEYWORD_BASE}', event['{WATCHDOG_BASE}'])",
             KEYWORD_REL_PATH: 
                 f"val.replace('{KEYWORD_REL_PATH}', relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}']))",
             KEYWORD_REL_DIR: 
                 f"val.replace('{KEYWORD_REL_DIR}', dirname(relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}'])))"
-        }
+        },(
+            "from os.path import dirname",
+            "from os.path import relpath"
+        ))
     
 
 class WatchdogMonitor(BaseMonitor):

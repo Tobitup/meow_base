@@ -15,7 +15,8 @@ from meow_base.core.rule import Rule
 from meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START, JOB_ID, \
     JOB_EVENT, JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, \
     JOB_CREATE_TIME, JOB_REQUIREMENTS, STATUS_CREATING, META_FILE, JOB_FILE, \
-    DEFAULT_JOB_QUEUE_DIR
+    DEFAULT_JOB_QUEUE_DIR, NOTIFICATION_EMAIL, NOTIFICATION_KEYS, \
+    JOB_NOTIFICATIONS
 from meow_base.functionality.file_io import read_yaml
 from meow_base.functionality.meow import create_event
 from meow_base.patterns.file_event_pattern import FileEventPattern
@@ -139,6 +140,13 @@ class BasePatternTests(unittest.TestCase):
                     }
                 }
             )
+
+    # Test notification validation
+    def testIsValidNotifications(self)->None:
+        SharedTestPattern("name", "recipe")
+
+        for n in NOTIFICATION_KEYS:
+            SharedTestPattern("name", "recipe", {n, "test"})
 
     # Test expansion of parameter sweeps
     def testBasePatternExpandSweeps(self)->None:
@@ -835,7 +843,7 @@ class BaseHandleTests(unittest.TestCase):
 
         self.assertIsInstance(result, dict)
         print(result)
-        self.assertEqual(len(result), 10)
+        self.assertEqual(len(result), 11)
 
         self.assertIn(JOB_ID, result)
         self.assertIn(JOB_EVENT, result)
@@ -853,6 +861,8 @@ class BaseHandleTests(unittest.TestCase):
         self.assertIn(JOB_CREATE_TIME, result)
         self.assertIn(JOB_REQUIREMENTS, result)
         self.assertEqual(result[JOB_REQUIREMENTS], {})
+        self.assertIn(JOB_NOTIFICATIONS, result)
+        self.assertEqual(result[JOB_NOTIFICATIONS], {})
 
     # Test creation of meta data file
     def testCreatJobMetaFile(self):
