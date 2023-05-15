@@ -279,9 +279,6 @@ class WatchdogMonitor(BaseMonitor):
         self._rules_lock.acquire()
         try:
             for rule in self._rules.values():
-
-                print(f"-- EVENT {event.src_path} {event.event_type}")
-
                 # Skip events not within the event mask
                 if any(i in event_types for i in rule.pattern.event_mask) \
                         != True:

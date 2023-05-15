@@ -57,7 +57,6 @@ def replace_keywords(old_dict:Dict[str,str], job_id:str, event:Dict[str,Any],
         if isinstance(val, str):
             for keyword, substitution in keywords.items():
                 if keyword in val:
-                    print(substitution)
                     val = eval(substitution)
 
             new_dict[var] = val
