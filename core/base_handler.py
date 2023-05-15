@@ -16,9 +16,10 @@ from time import sleep
 from meow_base.core.vars import VALID_CHANNELS, EVENT_RULE, EVENT_PATH, \
     VALID_HANDLER_NAME_CHARS, META_FILE, JOB_ID, JOB_FILE, JOB_PARAMETERS, \
     DEFAULT_JOB_QUEUE_DIR, JOB_RECIPE_COMMAND, JOB_SCRIPT_COMMAND, \
-    get_drt_imp_msg
+    EVENT_TYPE, get_drt_imp_msg
 from meow_base.core.meow import valid_event
-from meow_base.patterns.file_event_pattern import WATCHDOG_HASH
+from meow_base.patterns.file_event_pattern import WATCHDOG_HASH, \
+    EVENT_TYPE_WATCHDOG
 from meow_base.functionality.file_io import threadsafe_write_status, \
     threadsafe_update_status, make_dir, write_file, lines_to_string
 from meow_base.functionality.validation import check_implementation, \
@@ -198,7 +199,7 @@ class BaseHandler:
         recipe_command = self.create_job_recipe_file(job_dir, event, params_dict)
 
         # Create job script file
-        script_command = self.create_job_script_file(job_dir, recipe_command)
+        script_command = self.create_job_script_file(job_dir, event, recipe_command)
 
         threadsafe_update_status(
             {
@@ -233,35 +234,41 @@ class BaseHandler:
 
         return meta_file
 
-    def create_job_recipe_file(self, job_dir:str, event:Dict[str,Any], params_dict:Dict[str,Any]
+    def create_job_recipe_file(self, job_dir:str, event:Dict[str,Any], 
+            params_dict:Dict[str,Any]
             )->str:
         pass # Must implemented
 
-    def create_job_script_file(self, job_dir:str, recipe_command:str)->str:
+    def create_job_script_file(self, job_dir:str, event:Dict[str,Any], 
+            recipe_command:str)->str:
         # TODO Make this more generic, so only checking hashes if that is present
-        job_script = [
-            "#!/bin/bash",
-            "",
-            "# Get job params",
-            f"given_hash=$(grep '{WATCHDOG_HASH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
-            f"event_path=$(grep '{EVENT_PATH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
-            "",
-            "echo event_path: $event_path",
-            "echo given_hash: $given_hash",
-            "",
-            "# Check hash of input file to avoid race conditions",
-            "actual_hash=$(sha256sum $event_path | cut -c -64)",
-            "echo actual_hash: $actual_hash",
-            "if [ $given_hash != $actual_hash ]; then",
-            "   echo Job was skipped as triggering file has been modified since scheduling",
-            "   exit 134",
-            "fi",
-            "",
+        job_script = [ "#!/bin/bash", "" ]
+
+        if event[EVENT_TYPE] == EVENT_TYPE_WATCHDOG and WATCHDOG_HASH in event:
+            job_script.extend([
+                "# Get job params",
+                f"given_hash=$(grep '{WATCHDOG_HASH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 14-)",
+                f"event_path=$(grep '{EVENT_PATH}: *' $(dirname $0)/job.yml | tail -n1 | cut -c 15-)",
+                "",
+                "echo event_path: $event_path",
+                "echo given_hash: $given_hash",
+                "",
+                "# Check hash of input file to avoid race conditions",
+                "actual_hash=$(sha256sum $event_path | cut -c -64)",
+                "echo actual_hash: $actual_hash",
+                "if [ $given_hash != $actual_hash ]; then",
+                "   echo Job was skipped as triggering file has been modified since scheduling",
+                "   exit 134",
+                "fi",
+                "",
+            ])
+        
+        job_script.extend([
             "# Call actual job script",
-            recipe_command,
+            f"{recipe_command} > $(dirname $0)/stdout.txt 2> $(dirname $0)/stderr.txt",
             "",
             "exit $?"
-        ]
+        ])
         job_file = os.path.join(job_dir, JOB_FILE)
         write_file(lines_to_string(job_script), job_file)
         os.chmod(job_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )

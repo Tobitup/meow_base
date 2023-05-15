@@ -5,6 +5,7 @@ import unittest
 
 from multiprocessing import Pipe
 from time import sleep, time
+from watchdog.events import FileSystemEvent
 
 from meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
     EVENT_RULE, EVENT_PATH, SWEEP_START, \
@@ -12,8 +13,9 @@ from meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
 from meow_base.functionality.file_io import make_dir
 from meow_base.functionality.meow import create_rule
 from meow_base.patterns.file_event_pattern import FileEventPattern, \
-    WatchdogMonitor, _DEFAULT_MASK, WATCHDOG_HASH, WATCHDOG_BASE, \
-    EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, create_watchdog_event
+    WatchdogMonitor, WatchdogEventHandler, _DEFAULT_MASK, WATCHDOG_HASH, \
+    WATCHDOG_BASE, EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, \
+    create_watchdog_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 from meow_base.recipes.python_recipe import PythonRecipe
 from shared import BAREBONES_NOTEBOOK, TEST_MONITOR_BASE, \
@@ -997,3 +999,76 @@ class WatchdogMonitorTests(unittest.TestCase):
 
         self.assertIsInstance(rules, dict)
         self.assertEqual(len(rules), 2)
+
+
+class WatchdogEventHandlerTests(unittest.TestCase):
+    def setUp(self)->None:
+        super().setUp()
+        setup()
+
+    def tearDown(self)->None:
+        super().tearDown()
+        teardown()
+
+    def testThreadedHandler(self)->None:
+        def alert(event):
+            from_mon.send(event)
+            
+        from_mon, to_test = Pipe()
+        wm = WatchdogMonitor(TEST_MONITOR_BASE, {}, {})
+        wm.match = alert
+        wm.alert_chan = from_mon
+
+        wh = WatchdogEventHandler(wm)
+
+        e1 = FileSystemEvent("test")
+        e1.time_stamp = 10.0
+        e1.event_type = "created"
+
+        wh.threaded_handler(e1)
+        message = None
+        if to_test.poll(3):
+            message = to_test.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(message, e1)
+        self.assertEqual(
+            wh._recent_jobs, {
+                "test": [10.0, {"created"}]
+            }
+        )
+
+        e2 = FileSystemEvent("test")
+        e2.time_stamp = 10.5
+        e2.event_type = "modified"
+
+        wh.threaded_handler(e2)
+        message = None
+        if to_test.poll(3):
+            message = to_test.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(message, e2)
+        self.assertEqual(
+            wh._recent_jobs, {
+                "test": [10.5, {"modified", "created"}]
+            }
+        )
+
+        e3 = FileSystemEvent("test")
+        e3.time_stamp = 12
+        e3.event_type = "moved"
+
+        wh.threaded_handler(e3)
+        message = None
+        if to_test.poll(3):
+            message = to_test.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(message, e3)
+        self.assertEqual(
+            wh._recent_jobs, {
+                "test": [12, {"moved"}]
+            }
+        )
+

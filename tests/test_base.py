@@ -876,7 +876,8 @@ class BaseHandleTests(unittest.TestCase):
     # Test creation of core script file
     def testCreateJobScriptFile(self):
         h = SharedTestHandler()
-        h.create_job_script_file(TEST_DIR, "command")
+        e = create_event("test", "test", "test", 0)
+        h.create_job_script_file(TEST_DIR, e, "command")
         
         self.assertTrue(os.path.exists(os.path.join(TEST_DIR, JOB_FILE)))
 

@@ -279,7 +279,9 @@ class WatchdogMonitor(BaseMonitor):
         self._rules_lock.acquire()
         try:
             for rule in self._rules.values():
-                
+
+                print(f"-- EVENT {event.src_path} {event.event_type}")
+
                 # Skip events not within the event mask
                 if any(i in event_types for i in rule.pattern.event_mask) \
                         != True:
@@ -415,9 +417,14 @@ class WatchdogEventHandler(PatternMatchingEventHandler):
         self._recent_jobs_lock.acquire()
         try:
             if event.src_path in self._recent_jobs: 
-                if event.time_stamp > self._recent_jobs[event.src_path][0]:
+                if event.time_stamp > self._recent_jobs[event.src_path][0]+self._settletime:
+                    self._recent_jobs[event.src_path] = \
+                        [event.time_stamp, {event.event_type}]
+
+                elif event.time_stamp > self._recent_jobs[event.src_path][0]:
                     self._recent_jobs[event.src_path][0] = event.time_stamp
                     self._recent_jobs[event.src_path][1].add(event.event_type)
+
                 else:
                     self._recent_jobs_lock.release()
                     return

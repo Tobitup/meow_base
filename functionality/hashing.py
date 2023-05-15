@@ -6,7 +6,7 @@ Author(s): David Marchant
 
 from hashlib import sha256
 from os import listdir
-from os.path import isfile
+from os.path import isfile, exists
 
 
 from meow_base.core.vars import HASH_BUFFER_SIZE, SHA256
@@ -49,10 +49,10 @@ def get_file_hash(file_path:str, hash:str, hint:str="")->str:
     return valid_hashes[hash](file_path)
 
 # TODO inspect this a bit more fully 
-def get_dir_hash(file_path:str, hash:str, hint:str="")->str:
+def get_dir_hash(dir_path:str, hash:str, hint:str="")->str:
     check_type(hash, str, hint=hint)
 
-    valid_existing_dir_path(file_path)
+    valid_existing_dir_path(dir_path)
 
     valid_hashes = {
         SHA256: _get_dir_sha256
@@ -61,9 +61,11 @@ def get_dir_hash(file_path:str, hash:str, hint:str="")->str:
         raise KeyError(f"Cannot use hash '{hash}'. Valid are "
             f"'{list(valid_hashes.keys())}")
 
-    return valid_hashes[hash](file_path)
+    return valid_hashes[hash](dir_path)
 
 def get_hash(path:str, hash:str, hint:str="")->str:
+    if not exists(path):
+        return None
     if isfile(path):
         return get_file_hash(path, hash, hint=hint)
     else:

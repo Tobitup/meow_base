@@ -197,3 +197,26 @@ def create_rule(pattern:BasePattern, recipe:BaseRecipe)->Rule:
         pattern, 
         recipe
     )
+
+# TODO test me
+def assemble_patterns_dict(patterns:List[BasePattern])->Dict[str,BasePattern]:
+    valid_list(
+        patterns, 
+        BasePattern, 
+        min_length=0, 
+        hint="assemble_patterns_dict.patterns"
+    )
+
+    return { pattern.name: pattern for pattern in patterns }
+
+# TODO test me
+def assemble_recipes_dict(recipes:List[BaseRecipe])->Dict[str,BaseRecipe]:
+    valid_list(
+        recipes, 
+        BaseRecipe, 
+        min_length=0, 
+        hint="assemble_recipes_dict.recipes"
+    )
+
+    return { recipe.name: recipe for recipe in recipes }
+
