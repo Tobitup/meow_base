@@ -102,5 +102,5 @@ class PythonHandler(BaseHandler):
         write_file(lines_to_string(base_script), base_file)
         os.chmod(base_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )
 
-        return f"python3 {base_file} >>{os.path.join(job_dir, 'output.log')} 2>&1"
+        return f"python3 {base_file}"
 

@@ -150,6 +150,7 @@ SWEEP_JUMP = "jump"
 DEBUG_ERROR = 1
 DEBUG_WARNING = 2
 DEBUG_INFO = 3
+DEBUG_DEBUG = 4
 
 # Locking
 LOCK_EXT = ".lock"

@@ -598,8 +598,9 @@ class HashingTests(unittest.TestCase):
     def testGetFileHashSha256NoFile(self)->None:
         file_path = os.path.join(TEST_MONITOR_BASE, "file.txt")
 
-        with self.assertRaises(FileNotFoundError):        
-            get_hash(file_path, SHA256)
+        hash = get_hash(file_path, SHA256)
+
+        self.assertIsNone(hash)
 
 
 class MeowTests(unittest.TestCase):

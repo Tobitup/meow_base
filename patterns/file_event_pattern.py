@@ -28,7 +28,7 @@ from meow_base.core.vars import VALID_RECIPE_NAME_CHARS, \
     VALID_VARIABLE_NAME_CHARS, FILE_EVENTS, FILE_CREATE_EVENT, \
     FILE_MODIFY_EVENT, FILE_MOVED_EVENT, DEBUG_INFO, DIR_EVENTS, \
     FILE_RETROACTIVE_EVENT, SHA256, VALID_PATH_CHARS, FILE_CLOSED_EVENT, \
-    DIR_RETROACTIVE_EVENT, EVENT_PATH
+    DIR_RETROACTIVE_EVENT, EVENT_PATH, DEBUG_DEBUG
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.hashing import get_hash
 from meow_base.functionality.meow import create_event
@@ -269,6 +269,10 @@ class WatchdogMonitor(BaseMonitor):
         prepend = "dir_" if event.is_directory else "file_" 
         event_types = [prepend+i for i in event.event_type]
 
+        print_debug(self._print_target, self.debug_level,  
+            f"Matching event at {src_path} with types {event_types}", 
+            DEBUG_DEBUG)
+
         # Remove the base dir from the path as trigger paths are given relative
         # to that
         handle_path = src_path.replace(self.base_dir, '', 1)
@@ -432,6 +436,7 @@ class WatchdogEventHandler(PatternMatchingEventHandler):
             # If we have a closed event then short-cut the wait and send event
             # immediately        
             if event.event_type == FILE_CLOSED_EVENT:
+                event.event_type = [ FILE_CLOSED_EVENT ]
                 self.monitor.match(event)
                 self._recent_jobs_lock.release()
                 return

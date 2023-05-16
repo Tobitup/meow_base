@@ -7,7 +7,7 @@ Author(s): David Marchant
 from typing import Any, Tuple
 
 from meow_base.functionality.validation import check_type
-from meow_base.core.vars import DEBUG_INFO, DEBUG_WARNING
+from meow_base.core.vars import DEBUG_INFO, DEBUG_WARNING, DEBUG_DEBUG
 
 
 def setup_debugging(print:Any=None, logging:int=0)->Tuple[Any,int]:
@@ -39,4 +39,6 @@ def print_debug(print_target, debug_level, msg, level)->None:
                 status = "INFO"
             elif level == DEBUG_WARNING:
                 status = "WARNING"
+            elif level == DEBUG_DEBUG:
+                status = "DEBUG"
             print(f"{status}: {msg}", file=print_target)

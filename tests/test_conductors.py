@@ -142,8 +142,8 @@ class PythonTests(unittest.TestCase):
         self.assertNotIn(JOB_ERROR, status)
 
         print(os.listdir(job_output_dir))
-        self.assertEqual(count_non_locks(job_output_dir), 4)
-        for f in [META_FILE, "recipe.py", "output.log", "job.sh"]:
+        self.assertEqual(count_non_locks(job_output_dir), 5)
+        for f in [META_FILE, "recipe.py", "job.sh", "stdout.txt", "stderr.txt"]:
             self.assertTrue(os.path.exists(os.path.join(job_output_dir, f)))
 
         self.assertTrue(os.path.exists(result_path))
@@ -229,8 +229,8 @@ class PythonTests(unittest.TestCase):
         self.assertIn(JOB_STATUS, status)
         self.assertEqual(status[JOB_STATUS], STATUS_DONE)
 
-        self.assertEqual(count_non_locks(job_output_dir), 4)
-        for f in [META_FILE, JOB_FILE, "result.ipynb", "recipe.ipynb"]:
+        self.assertEqual(count_non_locks(job_output_dir), 6)
+        for f in [META_FILE, JOB_FILE, "result.ipynb", "recipe.ipynb", "stdout.txt", "stderr.txt"]:
             self.assertTrue(os.path.exists(os.path.join(job_output_dir, f)))
 
         self.assertTrue(os.path.exists(result_path))
@@ -641,8 +641,8 @@ class BashTests(unittest.TestCase):
         self.assertEqual(status[JOB_STATUS], STATUS_DONE)
         self.assertNotIn(JOB_ERROR, status)
 
-        self.assertEqual(count_non_locks(job_output_dir), 3)
-        for f in [META_FILE, JOB_FILE]:
+        self.assertEqual(count_non_locks(job_output_dir), 5)
+        for f in [META_FILE, JOB_FILE, "stdout.txt", "stderr.txt"]:
             self.assertTrue(os.path.exists(os.path.join(job_output_dir, f)))
         job = threadsafe_read_status(os.path.join(job_output_dir, META_FILE))
         self.assertTrue(os.path.exists(os.path.join(job_output_dir, job[JOB_SCRIPT_COMMAND])))

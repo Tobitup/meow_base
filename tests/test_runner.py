@@ -438,7 +438,7 @@ class MeowTests(unittest.TestCase):
         )
 
         print(os.listdir(job_dir))
-        self.assertEqual(count_non_locks(job_dir), 4)
+        self.assertEqual(count_non_locks(job_dir), 6)
 
         result = read_notebook(
             os.path.join(job_dir, "result.ipynb"))
@@ -582,7 +582,7 @@ class MeowTests(unittest.TestCase):
         self.assertIn(job_ids[1], os.listdir(TEST_JOB_OUTPUT))
 
         mid_job_dir = os.path.join(TEST_JOB_OUTPUT, job_ids[0])
-        self.assertEqual(count_non_locks(mid_job_dir), 4)
+        self.assertEqual(count_non_locks(mid_job_dir), 6)
 
         result = read_notebook(
             os.path.join(mid_job_dir, "result.ipynb"))
@@ -597,7 +597,7 @@ class MeowTests(unittest.TestCase):
         self.assertEqual(data, "Initial Data\nA line from Pattern 1")
 
         final_job_dir = os.path.join(TEST_JOB_OUTPUT, job_ids[1])
-        self.assertEqual(count_non_locks(final_job_dir), 4)
+        self.assertEqual(count_non_locks(final_job_dir), 6)
 
         result = read_notebook(os.path.join(final_job_dir, 
             "result.ipynb"))
@@ -711,7 +711,7 @@ class MeowTests(unittest.TestCase):
 
         self.assertNotIn(JOB_ERROR, status)
 
-        result_path = os.path.join(job_dir, "output.log")
+        result_path = os.path.join(job_dir, "stdout.txt")
         self.assertTrue(os.path.exists(result_path))
         result = read_file(os.path.join(result_path))
         self.assertEqual(
@@ -839,14 +839,13 @@ class MeowTests(unittest.TestCase):
             final_job_id = job_ids[0]
 
         mid_job_dir = os.path.join(TEST_JOB_OUTPUT, mid_job_id)
-        self.assertEqual(count_non_locks(mid_job_dir), 4)
+        self.assertEqual(count_non_locks(mid_job_dir), 5)
 
         mid_metafile = os.path.join(mid_job_dir, META_FILE)
         mid_status = read_yaml(mid_metafile)
         self.assertNotIn(JOB_ERROR, mid_status)
 
-        mid_result_path = os.path.join(
-            mid_job_dir, "output.log")
+        mid_result_path = os.path.join(mid_job_dir, "stdout.txt")
         self.assertTrue(os.path.exists(mid_result_path))
         mid_result = read_file(os.path.join(mid_result_path))
         self.assertEqual(
@@ -858,13 +857,13 @@ class MeowTests(unittest.TestCase):
         self.assertEqual(mid_output, "7806.25")
 
         final_job_dir = os.path.join(TEST_JOB_OUTPUT, final_job_id)
-        self.assertEqual(count_non_locks(final_job_dir), 4)
+        self.assertEqual(count_non_locks(final_job_dir), 5)
 
         final_metafile = os.path.join(final_job_dir, META_FILE)
         final_status = read_yaml(final_metafile)
         self.assertNotIn(JOB_ERROR, final_status)
 
-        final_result_path = os.path.join(final_job_dir, "output.log")
+        final_result_path = os.path.join(final_job_dir, "stdout.txt")
         self.assertTrue(os.path.exists(final_result_path))
         final_result = read_file(os.path.join(final_result_path))
         self.assertEqual(
@@ -976,7 +975,7 @@ class MeowTests(unittest.TestCase):
 
             self.assertNotIn(JOB_ERROR, status)
 
-            result_path = os.path.join(job_dir, "output.log")
+            result_path = os.path.join(job_dir, "stdout.txt")
             self.assertTrue(os.path.exists(result_path))
             
             output_path = os.path.join(TEST_MONITOR_BASE, "output", "A.txt")
@@ -1151,7 +1150,7 @@ class MeowTests(unittest.TestCase):
 
         self.assertNotIn(JOB_ERROR, status)
 
-        result_path = os.path.join(job_dir, "output.log")
+        result_path = os.path.join(job_dir, "stdout.txt")
         self.assertTrue(os.path.exists(result_path))
         result = read_file(os.path.join(result_path))
         self.assertEqual(

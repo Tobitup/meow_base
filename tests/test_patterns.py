@@ -11,15 +11,17 @@ from meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
     EVENT_RULE, EVENT_PATH, SWEEP_START, \
     SWEEP_JUMP, SWEEP_STOP, DIR_EVENTS
 from meow_base.functionality.file_io import make_dir
-from meow_base.functionality.meow import create_rule
+from meow_base.functionality.meow import create_rule, assemble_patterns_dict, \
+    assemble_recipes_dict
 from meow_base.patterns.file_event_pattern import FileEventPattern, \
     WatchdogMonitor, WatchdogEventHandler, _DEFAULT_MASK, WATCHDOG_HASH, \
     WATCHDOG_BASE, EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, \
     create_watchdog_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 from meow_base.recipes.python_recipe import PythonRecipe
-from shared import BAREBONES_NOTEBOOK, TEST_MONITOR_BASE, \
-    COUNTING_PYTHON_SCRIPT, APPENDING_NOTEBOOK, setup, teardown
+from shared import SharedTestPattern, SharedTestRecipe, \
+    BAREBONES_NOTEBOOK, TEST_MONITOR_BASE, COUNTING_PYTHON_SCRIPT, \
+    APPENDING_NOTEBOOK, setup, teardown
 
 
 def patterns_equal(tester, pattern_one, pattern_two):
@@ -999,6 +1001,169 @@ class WatchdogMonitorTests(unittest.TestCase):
 
         self.assertIsInstance(rules, dict)
         self.assertEqual(len(rules), 2)
+
+    def testMatch(self)->None:
+        p1 = FileEventPattern(
+            "p1", 
+            os.path.join("dir", "file.txt"),
+            "r1",
+            "triggerfile"
+        )
+        p2 = FileEventPattern(
+            "p2", 
+            os.path.join("dir2", "*"),
+            "r1",
+            "triggerfile"
+        )
+        p3 = FileEventPattern(
+            "p3", 
+            os.path.join("dir3", "*.txt"),
+            "r1",
+            "triggerfile"
+        )
+        r1 = SharedTestRecipe(
+            "r1",
+            ""
+        )
+
+        to_test, from_monitor = Pipe()
+
+        patterns = assemble_patterns_dict([ p1, p2, p3 ])
+        recipes = assemble_recipes_dict([ r1 ])
+
+        wm = WatchdogMonitor(
+            TEST_MONITOR_BASE, 
+            patterns, 
+            recipes,
+            logging=4
+        )
+        wm.to_runner_event = to_test
+
+        e1 = FileSystemEvent("test")
+        e1.event_type = [ "created" ]
+        e1.time_stamp = 10
+
+        wm.match(e1)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNone(message)
+
+        e2 = FileSystemEvent(os.path.join("dir", "file.txt"))
+        e2.event_type = [ "created" ] 
+        e2.time_stamp = 10
+
+        wm.match(e2)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e2.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e3 = FileSystemEvent(os.path.join("dir", "file2.txt"))
+        e3.event_type = [ "created" ] 
+        e3.time_stamp = 10
+
+        wm.match(e3)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNone(message)
+
+        e4 = FileSystemEvent(os.path.join("dir2", "file.txt"))
+        e4.event_type = [ "created" ] 
+        e4.time_stamp = 10
+
+        wm.match(e4)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e4.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e4 = FileSystemEvent(os.path.join("dir2", "file2.txt"))
+        e4.event_type = [ "created" ] 
+        e4.time_stamp = 10
+
+        wm.match(e4)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e4.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e5 = FileSystemEvent(os.path.join("dir2", "dir", "file.txt"))
+        e5.event_type = [ "created" ] 
+        e5.time_stamp = 10
+
+        wm.match(e5)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e5.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e6 = FileSystemEvent(os.path.join("dir3", "file.txt"))
+        e6.event_type = [ "created" ] 
+        e6.time_stamp = 10
+
+        wm.match(e6)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e6.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e7 = FileSystemEvent(os.path.join("dir3", "dir", "file.txt"))
+        e7.event_type = [ "created" ] 
+        e7.time_stamp = 10
+
+        wm.match(e7)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNotNone(message)
+        self.assertEqual(e7.src_path, message[EVENT_PATH])
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+
+        e8 = FileSystemEvent(os.path.join("dir3", "file"))
+        e8.event_type = [ "created" ] 
+        e8.time_stamp = 10
+
+        wm.match(e8)
+
+        message = None
+        if from_monitor.poll(3):
+            message = from_monitor.recv()
+
+        self.assertIsNone(message) 
 
 
 class WatchdogEventHandlerTests(unittest.TestCase):
