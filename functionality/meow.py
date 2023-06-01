@@ -22,26 +22,18 @@ from meow_base.functionality.naming import generate_job_id
 
 # core trigger keyword replacements
 KEYWORD_PATH = "{PATH}"
-KEYWORD_DIR = "{DIR}"
-KEYWORD_FILENAME = "{FILENAME}"
-KEYWORD_PREFIX = "{PREFIX}"
-KEYWORD_EXTENSION = "{EXTENSION}"
 KEYWORD_JOB = "{JOB}"
 
 DEFAULT_KEYWORDS = {
     KEYWORD_PATH: "val.replace(KEYWORD_PATH, event[EVENT_PATH])",
-    KEYWORD_DIR: "val.replace(KEYWORD_DIR, dirname(event[EVENT_PATH]))",
-    KEYWORD_FILENAME: f"val.replace(KEYWORD_FILENAME, basename(event['{EVENT_PATH}']))",
-    KEYWORD_PREFIX: f"val.replace(KEYWORD_PREFIX, splitext(basename(event['{EVENT_PATH}']))[0])",
-    KEYWORD_EXTENSION: f"val.replace(KEYWORD_EXTENSION, splitext(basename(event['{EVENT_PATH}']))[1])",
     KEYWORD_JOB: "val.replace(KEYWORD_JOB, job_id)",
 }
 
 
 # TODO make this generic for all event types, currently very tied to file 
 # events
-def replace_keywords(old_dict:Dict[str,str], job_id:str, event:Dict[str,Any],
-        keywords:Dict[str,str]=DEFAULT_KEYWORDS)->Dict[str,str]:
+def replace_keywords(old_dict:Dict[str,str], job_id:str, event:Dict[str,Any]
+        )->Dict[str,str]:
     """Function to replace all MEOW magic words in a dictionary with dynamic 
     values."""
     new_dict = {}

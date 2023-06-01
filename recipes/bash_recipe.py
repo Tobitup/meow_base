@@ -101,6 +101,7 @@ class BashHandler(BaseHandler):
         base_script = parameterize_bash_script(
             event[EVENT_RULE].recipe.recipe, params_dict
         )
+
         base_file = os.path.join(job_dir, "recipe.sh")
         write_file(lines_to_string(base_script), base_file)
         os.chmod(base_file, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH )

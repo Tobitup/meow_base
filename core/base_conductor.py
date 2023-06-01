@@ -21,13 +21,14 @@ from meow_base.core.vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
     BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
     DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, JOB_SCRIPT_COMMAND, \
     JOB_NOTIFICATIONS, JOB_ID, VALID_EMAIL_CHARS, NOTIFICATION_EMAIL, \
-    get_drt_imp_msg
+    NOTIFICATION_MSG, JOB_EVENT, get_drt_imp_msg
 from meow_base.functionality.file_io import write_file, \
     threadsafe_read_status, threadsafe_update_status, make_dir
 from meow_base.functionality.validation import check_implementation, \
     valid_string, valid_existing_dir_path, valid_natural, valid_dir_path
 from meow_base.functionality.naming import generate_conductor_id
-from meow_base.functionality.notifications import send_email
+from meow_base.functionality.notifications import send_email, \
+    get_notification_message_with_subs
 
 class BaseConductor:
     # An identifier for a conductor within the runner. Can be manually set in 
@@ -281,9 +282,16 @@ class BaseConductor:
             status = threadsafe_read_status(result_job_file)
 
             if JOB_NOTIFICATIONS in status:
-                msg = f"Job {status[JOB_ID]} completed with status {status[JOB_STATUS]}."
-                if JOB_ERROR in status:
-                    msg = f"{msg} {status[JOB_ERROR]}" 
+                if NOTIFICATION_MSG in status[JOB_NOTIFICATIONS]:
+                    msg = get_notification_message_with_subs(
+                        status[JOB_NOTIFICATIONS][NOTIFICATION_MSG], 
+                        status[JOB_ID],
+                        status[JOB_EVENT]
+                    )
+                else:
+                    msg = f"Job {status[JOB_ID]} completed with status {status[JOB_STATUS]}."
+                    if JOB_ERROR in status:
+                        msg = f"{msg} {status[JOB_ERROR]}" 
                 self.send_notifications(msg, status[JOB_NOTIFICATIONS])
 
     def execute(self, job_dir:str)->None:

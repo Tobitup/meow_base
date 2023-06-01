@@ -600,6 +600,89 @@ class WatchdogMonitorTests(unittest.TestCase):
 
         wm.stop()
 
+    # Test WatchdogMonitor identifies events for retroacive directory patterns
+    def testMonitorRetroAndOngoingDirectory(self)->None:
+        start_dir = os.path.join(TEST_MONITOR_BASE, "dir")
+        make_dir(start_dir)
+
+        make_dir(os.path.join(start_dir, "A"))
+
+        pattern_one = FileEventPattern(
+            "pattern_one", 
+            os.path.join("dir", "*"), 
+            "recipe_one", 
+            "dir_to_count", 
+            parameters={},
+            event_mask=DIR_EVENTS
+        )
+        recipe = PythonRecipe(
+            "recipe_one", COUNTING_PYTHON_SCRIPT)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        wm = WatchdogMonitor(
+            TEST_MONITOR_BASE,
+            patterns,
+            recipes,
+            settletime=3
+        )
+
+        rules = wm.get_rules()
+        rule = rules[list(rules.keys())[0]]
+
+        from_monitor_reader, from_monitor_writer = Pipe()
+        wm.to_runner_event = from_monitor_writer
+   
+        wm.start()
+
+        messages = []
+        while True:
+            if from_monitor_reader.poll(5):
+                messages.append(from_monitor_reader.recv())
+            else:
+                break
+        self.assertTrue(len(messages), 1)
+        message = messages[0]
+
+        self.assertEqual(type(message), dict)
+        self.assertIn(EVENT_TYPE, message)
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertIn(WATCHDOG_BASE, message)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+        self.assertIn(EVENT_PATH, message)
+        self.assertEqual(message[EVENT_PATH], os.path.join(start_dir, "A"))
+        self.assertIn(EVENT_RULE, message)
+        self.assertEqual(message[EVENT_RULE].name, rule.name)
+
+        make_dir(os.path.join(start_dir, "B"))
+
+        messages = []
+        while True:
+            if from_monitor_reader.poll(5):
+                messages.append(from_monitor_reader.recv())
+            else:
+                break
+        self.assertTrue(len(messages), 1)
+        message = messages[0]
+
+        self.assertEqual(type(message), dict)
+        self.assertIn(EVENT_TYPE, message)
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertIn(WATCHDOG_BASE, message)
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
+        self.assertIn(EVENT_PATH, message)
+        self.assertEqual(message[EVENT_PATH], os.path.join(start_dir, "B"))
+        self.assertIn(EVENT_RULE, message)
+        self.assertEqual(message[EVENT_RULE].name, rule.name)
+
+        wm.stop()
+
+
     # Test WatchdogMonitor get_patterns function
     def testMonitorGetPatterns(self)->None:
         pattern_one = FileEventPattern(

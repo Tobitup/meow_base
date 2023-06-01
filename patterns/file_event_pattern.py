@@ -27,7 +27,7 @@ from meow_base.functionality.validation import check_type, valid_string, \
 from meow_base.core.vars import VALID_RECIPE_NAME_CHARS, \
     VALID_VARIABLE_NAME_CHARS, FILE_EVENTS, FILE_CREATE_EVENT, \
     FILE_MODIFY_EVENT, FILE_MOVED_EVENT, DEBUG_INFO, DIR_EVENTS, \
-    FILE_RETROACTIVE_EVENT, SHA256, VALID_PATH_CHARS, FILE_CLOSED_EVENT, \
+    FILE_RETROACTIVE_EVENT, SHA256, VALID_REGEX_CHARS, FILE_CLOSED_EVENT, \
     DIR_RETROACTIVE_EVENT, EVENT_PATH, DEBUG_DEBUG
 from meow_base.functionality.debug import setup_debugging, print_debug
 from meow_base.functionality.hashing import get_hash
@@ -46,6 +46,10 @@ _DEFAULT_MASK = [
 KEYWORD_BASE = "{BASE}"
 KEYWORD_REL_PATH = "{REL_PATH}"
 KEYWORD_REL_DIR = "{REL_DIR}"
+KEYWORD_DIR = "{DIR}"
+KEYWORD_FILENAME = "{FILENAME}"
+KEYWORD_PREFIX = "{PREFIX}"
+KEYWORD_EXTENSION = "{EXTENSION}"
 
 # watchdog events
 EVENT_TYPE_WATCHDOG = "watchdog"
@@ -106,7 +110,7 @@ class FileEventPattern(BasePattern):
         constructor."""
         valid_string(
             triggering_path, 
-            VALID_PATH_CHARS+'*', 
+            VALID_REGEX_CHARS, 
             min_length=1, 
             hint="FileEventPattern.triggering_path"
         )
@@ -206,7 +210,15 @@ class FileEventPattern(BasePattern):
             KEYWORD_REL_PATH: 
                 f"val.replace('{KEYWORD_REL_PATH}', relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}']))",
             KEYWORD_REL_DIR: 
-                f"val.replace('{KEYWORD_REL_DIR}', dirname(relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}'])))"
+                f"val.replace('{KEYWORD_REL_DIR}', dirname(relpath(event[EVENT_PATH], event['{WATCHDOG_BASE}'])))",
+            KEYWORD_DIR: 
+                f"val.replace('{KEYWORD_DIR}', dirname(event[EVENT_PATH]))",
+            KEYWORD_FILENAME: 
+                f"val.replace('{KEYWORD_FILENAME}', basename(event[EVENT_PATH]))",
+            KEYWORD_PREFIX: 
+                f"val.replace('{KEYWORD_PREFIX}', splitext(basename(event[EVENT_PATH]))[0])",
+            KEYWORD_EXTENSION: 
+                f"val.replace('{KEYWORD_EXTENSION}', splitext(basename(event[EVENT_PATH]))[1])"
         },(
             "from os.path import dirname",
             "from os.path import relpath"
@@ -271,7 +283,7 @@ class WatchdogMonitor(BaseMonitor):
 
         print_debug(self._print_target, self.debug_level,  
             f"Matching event at {src_path} with types {event_types}", 
-            DEBUG_DEBUG)
+            DEBUG_INFO)
 
         # Remove the base dir from the path as trigger paths are given relative
         # to that
@@ -297,6 +309,13 @@ class WatchdogMonitor(BaseMonitor):
                 else:
                     direct_regexp = recursive_regexp.replace(
                         '.*', '[^'+ os.path.sep +']*')
+
+                direct_regexp = recursive_regexp
+
+                print_debug(self._print_target, self.debug_level,  
+                    f"comparing {recursive_regexp} against {handle_path}", 
+                    DEBUG_DEBUG)
+
                 recursive_hit = match(recursive_regexp, handle_path)
                 direct_hit = match(direct_regexp, handle_path)
 
