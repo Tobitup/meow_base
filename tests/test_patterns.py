@@ -1,6 +1,14 @@
+"""
+Tests for all pattern and monitor creation and operations.
 
+Author(s): David Marchant, Nikolaj Ingemann Gade
+"""
+
+import errno
 import io
 import os
+import socket
+import tempfile
 import unittest
 
 from multiprocessing import Pipe
@@ -17,6 +25,8 @@ from meow_base.patterns.file_event_pattern import FileEventPattern, \
     WatchdogMonitor, WatchdogEventHandler, _DEFAULT_MASK, WATCHDOG_HASH, \
     WATCHDOG_BASE, EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, \
     create_watchdog_event
+from meow_base.patterns.socket_event_pattern import SocketPattern, \
+    SocketMonitor, create_socket_file_event
 from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 from meow_base.recipes.python_recipe import PythonRecipe
 from shared import SharedTestPattern, SharedTestRecipe, \
@@ -24,18 +34,30 @@ from shared import SharedTestPattern, SharedTestRecipe, \
     APPENDING_NOTEBOOK, setup, teardown
 
 
+TEST_PORT = 8080
+
 def patterns_equal(tester, pattern_one, pattern_two):
     tester.assertEqual(pattern_one.name, pattern_two.name)
     tester.assertEqual(pattern_one.recipe, pattern_two.recipe)
     tester.assertEqual(pattern_one.parameters, pattern_two.parameters)
     tester.assertEqual(pattern_one.outputs, pattern_two.outputs)
-    tester.assertEqual(pattern_one.triggering_path, 
-        pattern_two.triggering_path)
-    tester.assertEqual(pattern_one.triggering_file, 
-        pattern_two.triggering_file)
-    tester.assertEqual(pattern_one.event_mask, pattern_two.event_mask)
     tester.assertEqual(pattern_one.sweep, pattern_two.sweep)
 
+    if type(pattern_one) != type(pattern_two):
+        raise TypeError("Expected matching pattern types. Got "
+                        f"{type(pattern_one)} and {type(pattern_two)}")
+    
+    if type(pattern_one) == FileEventPattern:
+        tester.assertEqual(pattern_one.triggering_path, 
+            pattern_two.triggering_path)
+        tester.assertEqual(pattern_one.triggering_file, 
+            pattern_two.triggering_file)
+        tester.assertEqual(pattern_one.event_mask, pattern_two.event_mask)
+    elif type(pattern_one) == SocketPattern:
+        tester.assertEqual(pattern_one.triggering_port, 
+            pattern_two.triggering_port)
+    else:
+        raise TypeError(f"Unknown pattern type {type(pattern_one)}")
 
 def recipes_equal(tester, recipe_one, recipe_two):
     tester.assertEqual(recipe_one.name, recipe_two.name)
@@ -43,6 +65,31 @@ def recipes_equal(tester, recipe_one, recipe_two):
     tester.assertEqual(recipe_one.parameters, recipe_two.parameters)
     tester.assertEqual(recipe_one.requirements, recipe_two.requirements)
     tester.assertEqual(recipe_one.source, recipe_two.source)
+
+def check_port_in_use(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    try:
+        s.bind(("127.0.0.1", port))
+    except socket.error as e:
+        if e.errno == errno.EADDRINUSE:
+            s.close()
+            return True
+        else:
+            # something else raised the socket.error exception
+            print(e)
+            s.close()
+            return False
+
+    s.close()
+    return False
+
+def check_shutdown_port_in_timeout(port, timeout):
+    for _ in range(timeout):
+        if not check_port_in_use(port):
+            return
+        sleep(1)
+    raise OSError(f"Port {port} not closed")
 
 
 class FileEventPatternTests(unittest.TestCase):
@@ -682,7 +729,6 @@ class WatchdogMonitorTests(unittest.TestCase):
 
         wm.stop()
 
-
     # Test WatchdogMonitor get_patterns function
     def testMonitorGetPatterns(self)->None:
         pattern_one = FileEventPattern(
@@ -1248,7 +1294,6 @@ class WatchdogMonitorTests(unittest.TestCase):
 
         self.assertIsNone(message) 
 
-
 class WatchdogEventHandlerTests(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()
@@ -1319,4 +1364,764 @@ class WatchdogEventHandlerTests(unittest.TestCase):
                 "test": [12, {"moved"}]
             }
         )
+
+class SocketPatternTests(unittest.TestCase):
+    def setUp(self)->None:
+        super().setUp()
+        setup()
+
+    def tearDown(self)->None:
+        super().tearDown()
+        teardown()
+
+    # Test NetworkEvent created
+    def testSocketPatternCreationMinimum(self)->None:
+        SocketPattern("name", TEST_PORT, "recipe")
+
+    # Test SocketPattern not created with empty name
+    def testSocketPatternCreationEmptyName(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("", 9000, "recipe")
+
+    # Test SocketPattern not created with empty recipe
+    def testSocketPatternCreationEmptyRecipe(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("name", 9000, "")
+
+    # Test SocketPattern not created with invalid name
+    def testSocketPatternCreationInvalidName(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("@name", TEST_PORT, "recipe")
+
+    # Test SocketPattern not created with invalid port
+    def testSocketPatternCreationInvalidPort(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("name", "9000", "recipe")
+
+    # Test SocketPattern not created with invalid port
+    def testSocketPatternCreationInvalidPort2(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("name", 0, "recipe")
+
+    # Test SocketPattern not created with invalid recipe
+    def testSocketPatternCreationInvalidRecipe(self)->None:
+        with self.assertRaises(ValueError):
+            SocketPattern("name", TEST_PORT, "@recipe")
+
+    # Test SocketPattern created with valid name
+    def testSocketPatternSetupName(self)->None:
+        name = "name"
+        nep = SocketPattern(name, TEST_PORT, "recipe")
+        self.assertEqual(nep.name, name)
+
+    # Test SocketPattern created with valid port
+    def testSocketPatternSetupPort(self)->None:
+        nep = SocketPattern("name", TEST_PORT, "recipe")
+        self.assertEqual(nep.triggering_port, TEST_PORT)
+
+    # Test SocketPattern created with valid recipe
+    def testSocketPatternSetupRecipe(self)->None:
+        recipe = "recipe"
+        nep = SocketPattern("name", TEST_PORT, recipe)
+        self.assertEqual(nep.recipe, recipe)
+
+    # Test SocketPattern created with valid parameters
+    def testSocketPatternSetupParameters(self)->None:
+        parameters = {
+            "a": 1,
+            "b": True
+        }
+        fep = SocketPattern("name", TEST_PORT, "recipe", parameters=parameters)
+        self.assertEqual(fep.parameters, parameters)
+
+    # Test SocketPattern created with valid outputs
+    def testSocketPatternSetupOutputs(self)->None:
+        outputs = {
+            "a": "a",
+            "b": "b"
+        }
+        fep = SocketPattern("name", TEST_PORT, "recipe", outputs=outputs)
+        self.assertEqual(fep.outputs, outputs)
+
+class SocketMonitorTests(unittest.TestCase):
+    def setUp(self)->None:
+        print("setup")
+        self.assertFalse(check_port_in_use(TEST_PORT))          
+        self.assertFalse(check_port_in_use(TEST_PORT+1))          
+        super().setUp()
+        setup()
+
+    def tearDown(self)->None:
+        print("teardown")
+        super().tearDown()
+        teardown()
+        check_shutdown_port_in_timeout(TEST_PORT, 5)
+        check_shutdown_port_in_timeout(TEST_PORT+1, 5)
+
+    # Test creation of network event dict
+    def testCreateNetworkEvent(self)->None:
+        pattern = SocketPattern(
+            "pattern",
+            TEST_PORT,
+            "recipe_one",
+            parameters={
+                "extra":"A line from a test Pattern",
+                "outfile":"result_path"
+            })
+        recipe = JupyterNotebookRecipe(
+            "recipe_one", APPENDING_NOTEBOOK)
+
+        rule = create_rule(pattern, recipe)
+
+        tmp_file = tempfile.NamedTemporaryFile("wb", delete=True)
+        tmp_file.write(b"data")
+
+        with self.assertRaises(TypeError):
+            event = create_socket_file_event(tmp_file.name, rule)
+
+        event = create_socket_file_event(tmp_file.name, rule, time())
+
+        tmp_file.close()
+
+        self.assertEqual(type(event), dict)
+        self.assertEqual(len(event.keys()), len(WATCHDOG_EVENT_KEYS))
+        for key, value in WATCHDOG_EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
+        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(
+            event[EVENT_PATH], 
+            tmp_file.name[len(tempfile.gettempdir()):])
+        self.assertEqual(event[EVENT_RULE], rule)
+
+
+        tmp_file2 = tempfile.NamedTemporaryFile("wb", delete=True)
+        tmp_file2.write(b"data")
+        
+        event = create_socket_file_event(
+            tmp_file2.name,
+            rule,
+            time(),
+            extras={"a":1}
+        )
+
+        tmp_file2.close()
+
+        self.assertEqual(type(event), dict)
+        self.assertTrue(EVENT_TYPE in event.keys())
+        self.assertTrue(EVENT_PATH in event.keys())
+        self.assertTrue(EVENT_RULE in event.keys())
+        self.assertEqual(len(event.keys()), len(WATCHDOG_EVENT_KEYS)+1)
+        for key, value in WATCHDOG_EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
+        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(
+            event[EVENT_PATH], 
+            tmp_file2.name[len(tempfile.gettempdir()):])
+        self.assertEqual(event[EVENT_RULE], rule)
+        self.assertEqual(event["a"], 1)
+
+    # Test SocketMonitor naming
+    def testSocketMonitorNaming(self)->None:
+        test_name = "test_name"
+        monitor = SocketMonitor({}, {}, name=test_name)
+        self.assertEqual(monitor.name, test_name)
+
+        monitor = SocketMonitor({}, {})
+        self.assertTrue(monitor.name.startswith("monitor_"))
+
+    # Test SocketMonitor identifies expected network events
+    def testSocketMonitorEventIdentification(self)->None:
+        localhost = "127.0.0.1"
+        port = TEST_PORT
+        test_packet = b'test'
+
+        from_monitor_reader, from_monitor_writer = Pipe()
+
+        pattern_one = SocketPattern(
+            "pattern_one", port, "recipe_one")
+        recipe = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        monitor = SocketMonitor(patterns, recipes)
+        monitor.to_runner_event = from_monitor_writer
+
+        rules = monitor.get_rules()
+
+        self.assertEqual(len(rules), 1)
+        rule = rules[list(rules.keys())[0]]
+
+        monitor.start()
+
+        sender = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sender.connect((localhost,port))
+        sender.sendall(test_packet)
+        sender.close()
+
+        if from_monitor_reader.poll(3):
+            message = from_monitor_reader.recv()
+        else:
+            message = None
+
+        self.assertIsNotNone(message)
+        event = message
+        self.assertIsInstance(event, dict)
+
+        self.assertTrue(EVENT_TYPE in event.keys())
+        self.assertTrue(EVENT_PATH in event.keys())
+        self.assertTrue(EVENT_RULE in event.keys())
+        for key, value in WATCHDOG_EVENT_KEYS.items():
+            self.assertTrue(key in event.keys())
+            self.assertIsInstance(event[key], value)
+        self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertEqual(event[EVENT_RULE].name, rule.name)
+
+        with open(event[WATCHDOG_BASE] + event[EVENT_PATH], "rb") as file_pointer:
+            received_packet = file_pointer.read()
+
+        self.assertEqual(received_packet, test_packet)
+
+        monitor.stop()
+
+    # Test SocketMonitor get_patterns function
+    def testSocketMonitorGetPatterns(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT+1,
+            "recipe_two",
+            parameters={})
+
+        monitor = SocketMonitor(
+            {
+                pattern_one.name: pattern_one,
+                pattern_two.name: pattern_two
+            },
+            {}
+        )
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 2)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+        self.assertIn(pattern_two.name, patterns)
+        patterns_equal(self, patterns[pattern_two.name], pattern_two)
+
+    # Test SocketMonitor add_pattern function
+    def testSocketAddPattern(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT+1,
+            "recipe_two",
+            parameters={})
+
+        monitor = SocketMonitor(
+            {pattern_one.name: pattern_one},
+            {}
+        )
+
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+        monitor.add_pattern(pattern_two)
+
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 2)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+        self.assertIn(pattern_two.name, patterns)
+        patterns_equal(self, patterns[pattern_two.name], pattern_two)
+
+        with self.assertRaises(KeyError):
+            monitor.add_pattern(pattern_two)
+
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 2)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+        self.assertIn(pattern_two.name, patterns)
+        patterns_equal(self, patterns[pattern_two.name], pattern_two)
+
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
+
+    # Test SocketMonitor update_patterns function
+    def testMonitorUpdatePattern(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT+1,
+            "recipe_two",
+            parameters={})
+
+        monitor = SocketMonitor(
+            {pattern_one.name: pattern_one},
+            {}
+        )
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+        pattern_one.recipe = "top_secret_recipe"
+
+        patterns = monitor.get_patterns()
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        self.assertEqual(patterns[pattern_one.name].name,
+            pattern_one.name)
+        self.assertEqual(patterns[pattern_one.name].recipe,
+            "recipe_one")
+        self.assertEqual(patterns[pattern_one.name].parameters,
+            pattern_one.parameters)
+        self.assertEqual(patterns[pattern_one.name].outputs,
+            pattern_one.outputs)
+        self.assertEqual(patterns[pattern_one.name].triggering_port,
+            pattern_one.triggering_port)
+
+        monitor.update_pattern(pattern_one)
+
+        patterns = monitor.get_patterns()
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+        with self.assertRaises(KeyError):
+            monitor.update_pattern(pattern_two)
+
+        patterns = monitor.get_patterns()
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+    # Test SocketMonitor remove_patterns function
+    def testMonitorRemovePattern(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT+1,
+            "recipe_two",
+            parameters={})
+
+        monitor = SocketMonitor(
+            {pattern_one.name: pattern_one},
+            {}
+        )
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+        with self.assertRaises(KeyError):
+            monitor.remove_pattern(pattern_two)
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 1)
+        self.assertIn(pattern_one.name, patterns)
+        patterns_equal(self, patterns[pattern_one.name], pattern_one)
+
+        monitor.remove_pattern(pattern_one)
+
+        patterns = monitor.get_patterns()
+
+        self.assertIsInstance(patterns, dict)
+        self.assertEqual(len(patterns), 0)
+
+    # Test SocketMonitor get_recipes function
+    def testMonitorGetRecipes(self)->None:
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+        recipe_two = JupyterNotebookRecipe(
+            "recipe_two", BAREBONES_NOTEBOOK)
+
+        monitor = SocketMonitor(
+            {},
+            {
+                recipe_one.name: recipe_one,
+                recipe_two.name: recipe_two
+            }
+        )
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 2)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+        self.assertIn(recipe_two.name, recipes)
+        recipes_equal(self, recipes[recipe_two.name], recipe_two)
+
+    # Test SocketMonitor add_recipe function
+    def testMonitorAddRecipe(self)->None:
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+        recipe_two = JupyterNotebookRecipe(
+            "recipe_two", BAREBONES_NOTEBOOK)
+
+        monitor = SocketMonitor(
+            {},
+            {
+                recipe_one.name: recipe_one
+            }
+        )
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+
+        monitor.add_recipe(recipe_two)
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 2)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+        self.assertIn(recipe_two.name, recipes)
+        recipes_equal(self, recipes[recipe_two.name], recipe_two)
+
+        with self.assertRaises(KeyError):
+            monitor.add_recipe(recipe_two)
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 2)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+        self.assertIn(recipe_two.name, recipes)
+        recipes_equal(self, recipes[recipe_two.name], recipe_two)
+
+    # Test SocketMonitor update_recipe function
+    def testMonitorUpdateRecipe(self)->None:
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+        recipe_two = JupyterNotebookRecipe(
+            "recipe_two", BAREBONES_NOTEBOOK)
+
+        monitor = SocketMonitor(
+            {},
+            {
+                recipe_one.name: recipe_one
+            }
+        )
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+        recipe_one.source = "top_secret_source"
+
+        recipes = monitor.get_recipes()
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        self.assertEqual(recipes[recipe_one.name].name,
+            recipe_one.name)
+        self.assertEqual(recipes[recipe_one.name].recipe,
+            recipe_one.recipe)
+        self.assertEqual(recipes[recipe_one.name].parameters,
+            recipe_one.parameters)
+        self.assertEqual(recipes[recipe_one.name].requirements,
+            recipe_one.requirements)
+        self.assertEqual(recipes[recipe_one.name].source,
+            "")
+
+        monitor.update_recipe(recipe_one)
+
+        recipes = monitor.get_recipes()
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+        with self.assertRaises(KeyError):
+            monitor.update_recipe(recipe_two)
+
+        recipes = monitor.get_recipes()
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+    # Test SocketMonitor remove_recipe function
+    def testMonitorRemoveRecipe(self)->None:
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+        recipe_two = JupyterNotebookRecipe(
+            "recipe_two", BAREBONES_NOTEBOOK)
+
+        monitor = SocketMonitor(
+            {},
+            {
+                recipe_one.name: recipe_one
+            }
+        )
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+        with self.assertRaises(KeyError):
+            monitor.remove_recipe(recipe_two)
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 1)
+        self.assertIn(recipe_one.name, recipes)
+        recipes_equal(self, recipes[recipe_one.name], recipe_one)
+
+        monitor.remove_recipe(recipe_one)
+
+        recipes = monitor.get_recipes()
+
+        self.assertIsInstance(recipes, dict)
+        self.assertEqual(len(recipes), 0)
+
+    # Test SocketMonitor get_rules function
+    def testMonitorGetRules(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT+1,
+            "recipe_two",
+            parameters={})
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+        recipe_two = JupyterNotebookRecipe(
+            "recipe_two", BAREBONES_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+            pattern_two.name: pattern_two,
+        }
+        recipes = {
+            recipe_one.name: recipe_one,
+            recipe_two.name: recipe_two,
+        }
+
+        monitor = SocketMonitor(
+            patterns,
+            recipes
+        )
+
+        rules = monitor.get_rules()
+
+        self.assertIsInstance(rules, dict)
+        self.assertEqual(len(rules), 2)
+
+    # Test if the rules are updated correctly
+    def testSocketUpdateRules(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+
+        monitor = SocketMonitor(
+            patterns,
+            {}
+        )
+
+        rules = monitor.get_rules()
+
+        self.assertIsInstance(rules, dict)
+        self.assertEqual(len(rules), 0)
+
+        monitor.add_recipe(recipe_one)
+
+        rules = monitor.get_rules()
+
+        self.assertIsInstance(rules, dict)
+        self.assertEqual(len(rules), 1)
+
+        monitor.stop()
+
+    # Test if the listeners are updated correctly
+    def testSocketListeners(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+
+        self.assertFalse(check_port_in_use(TEST_PORT))
+
+        monitor = SocketMonitor(
+            patterns,
+            {}
+        )
+
+        self.assertFalse(check_port_in_use(TEST_PORT))
+
+        monitor.start()
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports),0)
+        self.assertEqual(len(monitor.listeners),0)
+
+        self.assertFalse(check_port_in_use(TEST_PORT))
+    
+        monitor.add_recipe(recipe_one)
+
+        self.assertEqual(len(monitor._rules),1)
+        self.assertEqual(len(monitor.ports),1)
+        self.assertEqual(len(monitor.listeners),1)
+
+        sleep(1)
+
+        self.assertTrue(check_port_in_use(TEST_PORT))
+
+        monitor.stop()
+
+    # Test if the listeners are updated correctly
+    def testSocketMonitoring(self)->None:
+        pattern_one = SocketPattern(
+            "pattern_one",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
+        recipe_one = JupyterNotebookRecipe(
+            "recipe_one", BAREBONES_NOTEBOOK)
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+
+        recipes = {
+            recipe_one.name: recipe_one
+        }
+
+        sm = SocketMonitor(
+            patterns,
+            recipes
+        )
+
+        from_monitor_reader, from_monitor_writer = Pipe()
+        sm.to_runner_event = from_monitor_writer
+
+        rules = sm.get_rules()
+        self.assertEqual(len(rules), 1)
+        rule = rules[list(rules.keys())[0]]
+
+        sm.start()
+
+        sleep(1)
+
+        sender = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sender.connect(("127.0.0.1", TEST_PORT))
+        sender.sendall(b"data")
+        sender.close()
+
+        messages = []
+        while True:
+            if from_monitor_reader.poll(3):
+                messages.append(from_monitor_reader.recv())
+            else:
+                break
+        self.assertTrue(len(messages), 1)
+        message = messages[0]
+
+        self.assertEqual(type(message), dict)
+        self.assertIn(EVENT_TYPE, message)
+        self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
+        self.assertIn(WATCHDOG_BASE, message)
+        self.assertEqual(message[WATCHDOG_BASE], "/tmp")
+        self.assertIn(EVENT_PATH, message)
+        self.assertIn(EVENT_RULE, message)
+        self.assertEqual(message[EVENT_RULE].name, rule.name)
+
+        with self.assertRaises(ConnectionRefusedError):
+            sender = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sender.connect(("127.0.0.1", 8184))
+            sender.sendall(b"data")
+            sender.close()
+
+        sm.stop()
+
 

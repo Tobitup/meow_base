@@ -187,10 +187,6 @@ class FileEventPattern(BasePattern):
                 raise ValueError(f"Invalid event mask '{mask}'. Valid are: "
                     f"{FILE_EVENTS + DIR_EVENTS}")
 
-    def _is_valid_sweep(self, sweep: Dict[str,Union[int,float,complex]]) -> None:
-        """Validation check for 'sweep' variable from main constructor."""
-        return super()._is_valid_sweep(sweep)
-
     #TODO test me
     def assemble_params_dict(self, event:Dict[str,Any])->Dict[str,Any]|List[Dict[str,Any]]:
         base_params = super().assemble_params_dict(event)
