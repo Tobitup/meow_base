@@ -1445,14 +1445,12 @@ class SocketPatternTests(unittest.TestCase):
 
 class SocketMonitorTests(unittest.TestCase):
     def setUp(self)->None:
-        print("setup")
         self.assertFalse(check_port_in_use(TEST_PORT))          
         self.assertFalse(check_port_in_use(TEST_PORT+1))          
         super().setUp()
         setup()
 
     def tearDown(self)->None:
-        print("teardown")
         super().tearDown()
         teardown()
         check_shutdown_port_in_timeout(TEST_PORT, 5)
@@ -2024,6 +2022,11 @@ class SocketMonitorTests(unittest.TestCase):
             TEST_PORT,
             "recipe_one",
             parameters={})
+        pattern_two = SocketPattern(
+            "pattern_two",
+            TEST_PORT,
+            "recipe_one",
+            parameters={})
         recipe_one = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
 
@@ -2042,21 +2045,37 @@ class SocketMonitorTests(unittest.TestCase):
 
         monitor.start()
         self.assertEqual(len(monitor._rules), 0)
-        self.assertEqual(len(monitor.ports),0)
-        self.assertEqual(len(monitor.listeners),0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
 
         self.assertFalse(check_port_in_use(TEST_PORT))
     
         monitor.add_recipe(recipe_one)
 
-        self.assertEqual(len(monitor._rules),1)
-        self.assertEqual(len(monitor.ports),1)
-        self.assertEqual(len(monitor.listeners),1)
+        self.assertEqual(len(monitor._rules), 1)
+        self.assertEqual(len(monitor.ports), 1)
+        self.assertEqual(len(monitor.listeners), 1)
 
         sleep(1)
 
         self.assertTrue(check_port_in_use(TEST_PORT))
 
+        monitor.add_pattern(pattern_two)
+
+        self.assertEqual(len(monitor._rules), 2)
+        self.assertEqual(len(monitor.ports), 1)
+        self.assertEqual(len(monitor.listeners), 1)
+
+        monitor.remove_recipe(recipe_one)
+
+        self.assertEqual(len(monitor._rules), 0)
+        self.assertEqual(len(monitor.ports), 0)
+        self.assertEqual(len(monitor.listeners), 0)
+
+        sleep(1)
+
+        self.assertFalse(check_port_in_use(TEST_PORT))
+        
         monitor.stop()
 
     # Test if the listeners are updated correctly

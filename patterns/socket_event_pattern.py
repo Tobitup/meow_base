@@ -116,7 +116,6 @@ class SocketPattern(BasePattern):
         for k in outputs.keys():
             valid_string(k, VALID_VARIABLE_NAME_CHARS)
 
-# TODO make sure these are actually updating ports 
 class SocketMonitor(BaseMonitor):
     def __init__(self, patterns:Dict[str,SocketPattern],
             recipes:Dict[str,BaseRecipe], autostart=False,
@@ -190,7 +189,7 @@ class SocketMonitor(BaseMonitor):
 
         self._delete_temp_files()
 
-    def _create_new_rule(self, pattern:BasePattern, recipe:BaseRecipe)->None:
+    def _create_new_rule(self, pattern:SocketPattern, recipe:BaseRecipe)->None:
         rule = create_rule(pattern, recipe)
         self._rules_lock.acquire()
         try:
@@ -211,31 +210,73 @@ class SocketMonitor(BaseMonitor):
             raise e
 
         try:
-            listener = self.listener_type(
-                "127.0.0.1", 
-                rule.pattern.triggering_port, 
-                2048, 
-                self
-            )
-            self.listeners.append(listener)
+            no_start = False
+            for l in self.listeners:
+                if l.port == rule.pattern.triggering_port:
+                    no_start = True
+            if not no_start:
+                listener = self.listener_type(
+                    "127.0.0.1", 
+                    rule.pattern.triggering_port, 
+                    2048, 
+                    self
+                )
+                self.listeners.append(listener)
         except Exception as e:
             self._rules.pop(rule.name)
             self.ports.remove(rule.pattern.triggering_port)
             self._rules_lock.release()
             raise e
 
-        try:
-            listener.start()
-        except Exception as e:
-            self._rules.pop(rule.name)
-            self.ports.remove(rule.pattern.triggering_port)
-            self.listeners.pop(listener)
-            self._rules_lock.release()
-            raise e
+        if not no_start:
+            try:
+                listener.start()
+            except Exception as e:
+                self._rules.pop(rule.name)
+                self.ports.remove(rule.pattern.triggering_port)
+                self.listeners.pop(listener)
+                self._rules_lock.release()
+                raise e
 
         self._rules_lock.release()
 
         self._apply_retroactive_rule(rule)
+
+    def _identify_lost_rules(self, lost_pattern:str=None, 
+            lost_recipe:str=None)->None:
+        """Function to remove rules that should be deleted in response to a 
+        pattern or recipe having been deleted."""
+        to_delete = []
+        self._rules_lock.acquire()
+
+        try:
+            # Identify any offending rules
+            for name, rule in self._rules.items():
+                if lost_pattern and rule.pattern.name == lost_pattern:
+                    to_delete.append(name)
+                if lost_recipe and rule.recipe.name == lost_recipe:
+                    to_delete.append(name)
+
+            # Now delete them
+            for delete in to_delete:
+                if delete in self._rules.keys():
+                    self._rules.pop(delete)
+
+            # Now stop their listener and close the port
+            old_len = len(self.ports)
+            self.ports = set(
+                rule.pattern.triggering_port for rule in self._rules.values()
+            )
+            if old_len > len(self.ports):
+                to_stop = [i for i in self.listeners if i.port not in self.ports]
+                for ts in to_stop:
+                    ts.stop()
+                    self.listeners.remove(ts)
+
+        except Exception as e:
+            self._rules_lock.release()
+            raise e
+        self._rules_lock.release()
 
     def _is_valid_recipes(self, recipes:Dict[str,BaseRecipe])->None:
         """Validation check for 'recipes' variable from main constructor. Is
