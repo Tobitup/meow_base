@@ -6,21 +6,21 @@ from multiprocessing import Pipe
 from threading import Event, Thread
 from time import sleep, time
 
-from meow_base.core.base_conductor import BaseConductor
-from meow_base.core.base_handler import BaseHandler
-from meow_base.core.base_monitor import BaseMonitor
-from meow_base.core.base_pattern import BasePattern
-from meow_base.core.base_recipe import BaseRecipe
-from meow_base.core.rule import Rule
-from meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START, JOB_ID, \
+from ..meow_base.core.base_conductor import BaseConductor
+from ..meow_base.core.base_handler import BaseHandler
+from ..meow_base.core.base_monitor import BaseMonitor
+from ..meow_base.core.base_pattern import BasePattern
+from ..meow_base.core.base_recipe import BaseRecipe
+from ..meow_base.core.rule import Rule
+from ..meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START, JOB_ID, \
     JOB_EVENT, JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, \
     JOB_CREATE_TIME, JOB_REQUIREMENTS, STATUS_CREATING, META_FILE, JOB_FILE, \
     DEFAULT_JOB_QUEUE_DIR, NOTIFICATION_EMAIL, NOTIFICATION_KEYS, \
     JOB_NOTIFICATIONS
-from meow_base.functionality.file_io import read_yaml
-from meow_base.functionality.meow import create_event
-from meow_base.patterns.file_event_pattern import FileEventPattern
-from shared import SharedTestConductor, SharedTestHandler, SharedTestMonitor, \
+from ..meow_base.functionality.file_io import read_yaml
+from ..meow_base.functionality.meow import create_event
+from ..meow_base.patterns.file_event_pattern import FileEventPattern
+from .shared import SharedTestConductor, SharedTestHandler, SharedTestMonitor, \
     SharedTestPattern, SharedTestRecipe, TEST_DIR, setup, teardown
 
 

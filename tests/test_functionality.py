@@ -12,37 +12,37 @@ from sys import prefix, base_prefix
 from time import sleep, time
 from typing import Dict
 
-from meow_base.core.meow import EVENT_KEYS
-from meow_base.core.rule import Rule
-from meow_base.core.vars import CHAR_LOWERCASE, CHAR_UPPERCASE, \
+from ..meow_base.core.meow import EVENT_KEYS
+from ..meow_base.core.rule import Rule
+from ..meow_base.core.vars import CHAR_LOWERCASE, CHAR_UPPERCASE, \
     SHA256, EVENT_TYPE, EVENT_PATH, LOCK_EXT, EVENT_RULE, JOB_PARAMETERS, \
     PYTHON_FUNC, JOB_ID, JOB_EVENT, JOB_ERROR, STATUS_DONE, \
     JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, JOB_CREATE_TIME, \
     JOB_REQUIREMENTS, JOB_TYPE_PAPERMILL, STATUS_CREATING
-from meow_base.functionality.debug import setup_debugging
-from meow_base.functionality.file_io import lines_to_string, make_dir, \
+from ..meow_base.functionality.debug import setup_debugging
+from ..meow_base.functionality.file_io import lines_to_string, make_dir, \
     read_file, read_file_lines, read_notebook, read_yaml, rmtree, write_file, \
     write_notebook, write_yaml, threadsafe_read_status, \
     threadsafe_update_status, threadsafe_write_status
-from meow_base.functionality.hashing import get_hash
-from meow_base.functionality.meow import KEYWORD_JOB, KEYWORD_PATH, \
+from ..meow_base.functionality.hashing import get_hash
+from ..meow_base.functionality.meow import KEYWORD_JOB, KEYWORD_PATH, \
     create_event, create_job_metadata_dict, create_rule, create_rules, \
     replace_keywords, create_parameter_sweep
-from meow_base.functionality.naming import _generate_id
-from meow_base.functionality.notifications import send_email
-from meow_base.functionality.parameterisation import \
+from ..meow_base.functionality.naming import _generate_id
+from ..meow_base.functionality.notifications import send_email
+from ..meow_base.functionality.parameterisation import \
     parameterize_jupyter_notebook, parameterize_python_script, \
     parameterize_bash_script
-from meow_base.functionality.process_io import wait
-from meow_base.functionality.requirements import REQUIREMENT_PYTHON, \
+from ..meow_base.functionality.process_io import wait
+from ..meow_base.functionality.requirements import REQUIREMENT_PYTHON, \
     REQ_PYTHON_ENVIRONMENT, REQ_PYTHON_MODULES, REQ_PYTHON_VERSION, \
     create_python_requirements, check_requirements
-from meow_base.patterns.file_event_pattern import FileEventPattern, \
+from ..meow_base.patterns.file_event_pattern import FileEventPattern, \
     EVENT_TYPE_WATCHDOG, WATCHDOG_BASE, WATCHDOG_HASH, KEYWORD_BASE, \
     KEYWORD_REL_DIR, KEYWORD_REL_PATH, KEYWORD_DIR, KEYWORD_EXTENSION, \
     KEYWORD_FILENAME, KEYWORD_PREFIX, create_watchdog_event
-from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
-from shared import EmailHandler, SharedTestRecipe, TEST_MONITOR_BASE, \
+from ..meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
+from .shared import EmailHandler, SharedTestRecipe, TEST_MONITOR_BASE, \
     COMPLETE_NOTEBOOK, APPENDING_NOTEBOOK, COMPLETE_PYTHON_SCRIPT, \
     COMPLETE_BASH_SCRIPT, valid_recipe_two, valid_recipe_one, \
     valid_pattern_one, valid_pattern_two, setup, teardown

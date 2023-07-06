@@ -3,21 +3,24 @@ This file contains shared functions and variables used within multiple tests.
 
 Author(s): David Marchant
 """
+import errno
 import os
+import socket
 
 from distutils.dir_util import copy_tree
+from time import sleep
 from typing import Any, Dict, List, Tuple
 
-from meow_base.core.base_conductor import BaseConductor
-from meow_base.core.base_handler import BaseHandler
-from meow_base.core.base_monitor import BaseMonitor
-from meow_base.core.base_pattern import BasePattern
-from meow_base.core.base_recipe import BaseRecipe
-from meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
+from ..meow_base.core.base_conductor import BaseConductor
+from ..meow_base.core.base_handler import BaseHandler
+from ..meow_base.core.base_monitor import BaseMonitor
+from ..meow_base.core.base_pattern import BasePattern
+from ..meow_base.core.base_recipe import BaseRecipe
+from ..meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
     DEFAULT_JOB_QUEUE_DIR, LOCK_EXT
-from meow_base.functionality.file_io import make_dir, rmtree
-from meow_base.patterns.file_event_pattern import FileEventPattern
-from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
+from ..meow_base.functionality.file_io import make_dir, rmtree
+from ..meow_base.patterns.file_event_pattern import FileEventPattern
+from ..meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 
 # testing 
 TEST_DIR = "test_files"
@@ -1425,6 +1428,32 @@ valid_recipe_one = JupyterNotebookRecipe(
     "recipe_one", BAREBONES_NOTEBOOK)
 valid_recipe_two = JupyterNotebookRecipe(
     "recipe_two", BAREBONES_NOTEBOOK)
+
+def check_port_in_use(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    try:
+        s.bind(("127.0.0.1", port))
+    except socket.error as e:
+        if e.errno == errno.EADDRINUSE:
+            s.close()
+            return True
+        else:
+            # something else raised the socket.error exception
+            print(e)
+            s.close()
+            return False
+
+    s.close()
+    return False
+
+def check_shutdown_port_in_timeout(port, timeout):
+    for _ in range(timeout):
+        if not check_port_in_use(port):
+            return
+        sleep(1)
+    raise OSError(f"Port {port} not closed")
+
 
 class SharedTestPattern(BasePattern):
     def _is_valid_recipe(self, recipe: Any) -> None:

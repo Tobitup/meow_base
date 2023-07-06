@@ -4,7 +4,6 @@ Tests for all pattern and monitor creation and operations.
 Author(s): David Marchant, Nikolaj Ingemann Gade
 """
 
-import errno
 import io
 import os
 import socket
@@ -15,23 +14,24 @@ from multiprocessing import Pipe
 from time import sleep, time
 from watchdog.events import FileSystemEvent
 
-from meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
+from ..meow_base.core.vars import FILE_CREATE_EVENT, EVENT_TYPE, \
     EVENT_RULE, EVENT_PATH, SWEEP_START, \
     SWEEP_JUMP, SWEEP_STOP, DIR_EVENTS
-from meow_base.functionality.file_io import make_dir
-from meow_base.functionality.meow import create_rule, assemble_patterns_dict, \
+from ..meow_base.functionality.file_io import make_dir
+from ..meow_base.functionality.meow import create_rule, assemble_patterns_dict, \
     assemble_recipes_dict
-from meow_base.patterns.file_event_pattern import FileEventPattern, \
+from ..meow_base.patterns.file_event_pattern import FileEventPattern, \
     WatchdogMonitor, WatchdogEventHandler, _DEFAULT_MASK, WATCHDOG_HASH, \
     WATCHDOG_BASE, EVENT_TYPE_WATCHDOG, WATCHDOG_EVENT_KEYS, \
     create_watchdog_event
-from meow_base.patterns.socket_event_pattern import SocketPattern, \
+from ..meow_base.patterns.socket_event_pattern import SocketPattern, \
     SocketMonitor, create_socket_file_event
-from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
-from meow_base.recipes.python_recipe import PythonRecipe
-from shared import SharedTestPattern, SharedTestRecipe, \
+from ..meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
+from ..meow_base.recipes.python_recipe import PythonRecipe
+from .shared import SharedTestPattern, SharedTestRecipe, \
     BAREBONES_NOTEBOOK, TEST_MONITOR_BASE, COUNTING_PYTHON_SCRIPT, \
-    APPENDING_NOTEBOOK, setup, teardown
+    APPENDING_NOTEBOOK, setup, teardown, check_port_in_use, \
+    check_shutdown_port_in_timeout
 
 
 TEST_PORT = 8080
@@ -65,32 +65,6 @@ def recipes_equal(tester, recipe_one, recipe_two):
     tester.assertEqual(recipe_one.parameters, recipe_two.parameters)
     tester.assertEqual(recipe_one.requirements, recipe_two.requirements)
     tester.assertEqual(recipe_one.source, recipe_two.source)
-
-def check_port_in_use(port):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    try:
-        s.bind(("127.0.0.1", port))
-    except socket.error as e:
-        if e.errno == errno.EADDRINUSE:
-            s.close()
-            return True
-        else:
-            # something else raised the socket.error exception
-            print(e)
-            s.close()
-            return False
-
-    s.close()
-    return False
-
-def check_shutdown_port_in_timeout(port, timeout):
-    for _ in range(timeout):
-        if not check_port_in_use(port):
-            return
-        sleep(1)
-    raise OSError(f"Port {port} not closed")
-
 
 class FileEventPatternTests(unittest.TestCase):
     def setUp(self)->None:
@@ -1376,53 +1350,53 @@ class SocketPatternTests(unittest.TestCase):
 
     # Test NetworkEvent created
     def testSocketPatternCreationMinimum(self)->None:
-        SocketPattern("name", TEST_PORT, "recipe")
+        SocketPattern("name", TEST_PORT, "recipe", "msg")
 
     # Test SocketPattern not created with empty name
     def testSocketPatternCreationEmptyName(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("", 9000, "recipe")
+            SocketPattern("", 9000, "recipe", "msg")
 
     # Test SocketPattern not created with empty recipe
     def testSocketPatternCreationEmptyRecipe(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("name", 9000, "")
+            SocketPattern("name", 9000, "", "msg")
 
     # Test SocketPattern not created with invalid name
     def testSocketPatternCreationInvalidName(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("@name", TEST_PORT, "recipe")
+            SocketPattern("@name", TEST_PORT, "recipe", "msg")
 
     # Test SocketPattern not created with invalid port
     def testSocketPatternCreationInvalidPort(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("name", "9000", "recipe")
+            SocketPattern("name", "9000", "recipe", "msg")
 
     # Test SocketPattern not created with invalid port
     def testSocketPatternCreationInvalidPort2(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("name", 0, "recipe")
+            SocketPattern("name", 0, "recipe", "msg")
 
     # Test SocketPattern not created with invalid recipe
     def testSocketPatternCreationInvalidRecipe(self)->None:
         with self.assertRaises(ValueError):
-            SocketPattern("name", TEST_PORT, "@recipe")
+            SocketPattern("name", TEST_PORT, "@recipe", "msg")
 
     # Test SocketPattern created with valid name
     def testSocketPatternSetupName(self)->None:
         name = "name"
-        nep = SocketPattern(name, TEST_PORT, "recipe")
+        nep = SocketPattern(name, TEST_PORT, "recipe", "msg")
         self.assertEqual(nep.name, name)
 
     # Test SocketPattern created with valid port
     def testSocketPatternSetupPort(self)->None:
-        nep = SocketPattern("name", TEST_PORT, "recipe")
+        nep = SocketPattern("name", TEST_PORT, "recipe", "msg")
         self.assertEqual(nep.triggering_port, TEST_PORT)
 
     # Test SocketPattern created with valid recipe
     def testSocketPatternSetupRecipe(self)->None:
         recipe = "recipe"
-        nep = SocketPattern("name", TEST_PORT, recipe)
+        nep = SocketPattern("name", TEST_PORT, recipe, "msg")
         self.assertEqual(nep.recipe, recipe)
 
     # Test SocketPattern created with valid parameters
@@ -1431,7 +1405,9 @@ class SocketPatternTests(unittest.TestCase):
             "a": 1,
             "b": True
         }
-        fep = SocketPattern("name", TEST_PORT, "recipe", parameters=parameters)
+        fep = SocketPattern(
+            "name", TEST_PORT, "recipe", "msg", parameters=parameters
+        )
         self.assertEqual(fep.parameters, parameters)
 
     # Test SocketPattern created with valid outputs
@@ -1440,7 +1416,9 @@ class SocketPatternTests(unittest.TestCase):
             "a": "a",
             "b": "b"
         }
-        fep = SocketPattern("name", TEST_PORT, "recipe", outputs=outputs)
+        fep = SocketPattern(
+            "name", TEST_PORT, "recipe", "msg", outputs=outputs
+        )
         self.assertEqual(fep.outputs, outputs)
 
 class SocketMonitorTests(unittest.TestCase):
@@ -1461,7 +1439,8 @@ class SocketMonitorTests(unittest.TestCase):
         pattern = SocketPattern(
             "pattern",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={
                 "extra":"A line from a test Pattern",
                 "outfile":"result_path"
@@ -1471,13 +1450,19 @@ class SocketMonitorTests(unittest.TestCase):
 
         rule = create_rule(pattern, recipe)
 
-        tmp_file = tempfile.NamedTemporaryFile("wb", delete=True)
+        tmp_file = tempfile.NamedTemporaryFile(
+            "wb", delete=True, dir=TEST_MONITOR_BASE
+        )
         tmp_file.write(b"data")
 
         with self.assertRaises(TypeError):
-            event = create_socket_file_event(tmp_file.name, rule)
+            event = create_socket_file_event(
+                tmp_file.name, rule, TEST_MONITOR_BASE
+            )
 
-        event = create_socket_file_event(tmp_file.name, rule, time())
+        event = create_socket_file_event(
+            tmp_file.name, rule, TEST_MONITOR_BASE, time()
+        )
 
         tmp_file.close()
 
@@ -1489,16 +1474,20 @@ class SocketMonitorTests(unittest.TestCase):
         self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
         self.assertEqual(
             event[EVENT_PATH], 
-            tmp_file.name[len(tempfile.gettempdir()):])
+            tmp_file.name[tmp_file.name.index(TEST_MONITOR_BASE):]
+        )
         self.assertEqual(event[EVENT_RULE], rule)
 
 
-        tmp_file2 = tempfile.NamedTemporaryFile("wb", delete=True)
+        tmp_file2 = tempfile.NamedTemporaryFile(
+            "wb", delete=True, dir=TEST_MONITOR_BASE
+        )
         tmp_file2.write(b"data")
         
         event = create_socket_file_event(
             tmp_file2.name,
             rule,
+            TEST_MONITOR_BASE,
             time(),
             extras={"a":1}
         )
@@ -1516,17 +1505,18 @@ class SocketMonitorTests(unittest.TestCase):
         self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
         self.assertEqual(
             event[EVENT_PATH], 
-            tmp_file2.name[len(tempfile.gettempdir()):])
+            tmp_file2.name[tmp_file2.name.index(TEST_MONITOR_BASE):]
+        )
         self.assertEqual(event[EVENT_RULE], rule)
         self.assertEqual(event["a"], 1)
 
     # Test SocketMonitor naming
     def testSocketMonitorNaming(self)->None:
         test_name = "test_name"
-        monitor = SocketMonitor({}, {}, name=test_name)
+        monitor = SocketMonitor(TEST_MONITOR_BASE, {}, {}, name=test_name)
         self.assertEqual(monitor.name, test_name)
 
-        monitor = SocketMonitor({}, {})
+        monitor = SocketMonitor(TEST_MONITOR_BASE, {}, {})
         self.assertTrue(monitor.name.startswith("monitor_"))
 
     # Test SocketMonitor identifies expected network events
@@ -1538,7 +1528,7 @@ class SocketMonitorTests(unittest.TestCase):
         from_monitor_reader, from_monitor_writer = Pipe()
 
         pattern_one = SocketPattern(
-            "pattern_one", port, "recipe_one")
+            "pattern_one", port, "recipe_one", "msg")
         recipe = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
 
@@ -1549,7 +1539,7 @@ class SocketMonitorTests(unittest.TestCase):
             recipe.name: recipe,
         }
 
-        monitor = SocketMonitor(patterns, recipes)
+        monitor = SocketMonitor(TEST_MONITOR_BASE, patterns, recipes)
         monitor.to_runner_event = from_monitor_writer
 
         rules = monitor.get_rules()
@@ -1582,7 +1572,7 @@ class SocketMonitorTests(unittest.TestCase):
         self.assertEqual(event[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
         self.assertEqual(event[EVENT_RULE].name, rule.name)
 
-        with open(event[WATCHDOG_BASE] + event[EVENT_PATH], "rb") as file_pointer:
+        with open(event[EVENT_PATH], "rb") as file_pointer:
             received_packet = file_pointer.read()
 
         self.assertEqual(received_packet, test_packet)
@@ -1594,15 +1584,18 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT+1,
-            "recipe_two",
+            "recipe_two", 
+            "msg",
             parameters={})
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             {
                 pattern_one.name: pattern_one,
                 pattern_two.name: pattern_two
@@ -1624,16 +1617,21 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT+1,
-            "recipe_two",
+            "recipe_two", 
+            "msg",
             parameters={})
 
         monitor = SocketMonitor(
-            {pattern_one.name: pattern_one},
+            TEST_MONITOR_BASE, 
+            {
+                pattern_one.name: pattern_one
+            },
             {}
         )
 
@@ -1688,16 +1686,21 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT+1,
-            "recipe_two",
+            "recipe_two", 
+            "msg",
             parameters={})
 
         monitor = SocketMonitor(
-            {pattern_one.name: pattern_one},
+            TEST_MONITOR_BASE, 
+            {
+                pattern_one.name: pattern_one
+            },
             {}
         )
 
@@ -1747,16 +1750,21 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT+1,
-            "recipe_two",
+            "recipe_two", 
+            "msg",
             parameters={})
 
         monitor = SocketMonitor(
-            {pattern_one.name: pattern_one},
+            TEST_MONITOR_BASE, 
+            {
+                pattern_one.name: pattern_one
+            },
             {}
         )
 
@@ -1792,6 +1800,7 @@ class SocketMonitorTests(unittest.TestCase):
             "recipe_two", BAREBONES_NOTEBOOK)
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             {},
             {
                 recipe_one.name: recipe_one,
@@ -1816,6 +1825,7 @@ class SocketMonitorTests(unittest.TestCase):
             "recipe_two", BAREBONES_NOTEBOOK)
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             {},
             {
                 recipe_one.name: recipe_one
@@ -1861,6 +1871,7 @@ class SocketMonitorTests(unittest.TestCase):
             "recipe_two", BAREBONES_NOTEBOOK)
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             {},
             {
                 recipe_one.name: recipe_one
@@ -1916,6 +1927,7 @@ class SocketMonitorTests(unittest.TestCase):
             "recipe_two", BAREBONES_NOTEBOOK)
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             {},
             {
                 recipe_one.name: recipe_one
@@ -1951,12 +1963,14 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT+1,
-            "recipe_two",
+            "recipe_two", 
+            "msg",
             parameters={})
         recipe_one = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
@@ -1973,6 +1987,7 @@ class SocketMonitorTests(unittest.TestCase):
         }
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             patterns,
             recipes
         )
@@ -1987,7 +2002,8 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         recipe_one = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
@@ -1997,6 +2013,7 @@ class SocketMonitorTests(unittest.TestCase):
         }
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             patterns,
             {}
         )
@@ -2020,12 +2037,14 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         pattern_two = SocketPattern(
             "pattern_two",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         recipe_one = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
@@ -2037,6 +2056,7 @@ class SocketMonitorTests(unittest.TestCase):
         self.assertFalse(check_port_in_use(TEST_PORT))
 
         monitor = SocketMonitor(
+            TEST_MONITOR_BASE, 
             patterns,
             {}
         )
@@ -2083,7 +2103,8 @@ class SocketMonitorTests(unittest.TestCase):
         pattern_one = SocketPattern(
             "pattern_one",
             TEST_PORT,
-            "recipe_one",
+            "recipe_one", 
+            "msg",
             parameters={})
         recipe_one = JupyterNotebookRecipe(
             "recipe_one", BAREBONES_NOTEBOOK)
@@ -2097,6 +2118,7 @@ class SocketMonitorTests(unittest.TestCase):
         }
 
         sm = SocketMonitor(
+            TEST_MONITOR_BASE, 
             patterns,
             recipes
         )
@@ -2130,7 +2152,7 @@ class SocketMonitorTests(unittest.TestCase):
         self.assertIn(EVENT_TYPE, message)
         self.assertEqual(message[EVENT_TYPE], EVENT_TYPE_WATCHDOG)
         self.assertIn(WATCHDOG_BASE, message)
-        self.assertEqual(message[WATCHDOG_BASE], "/tmp")
+        self.assertEqual(message[WATCHDOG_BASE], TEST_MONITOR_BASE)
         self.assertIn(EVENT_PATH, message)
         self.assertIn(EVENT_RULE, message)
         self.assertEqual(message[EVENT_RULE].name, rule.name)

@@ -6,22 +6,22 @@ import unittest
 from multiprocessing import Pipe
 from time import time
 
-from meow_base.core.meow import valid_job
-from meow_base.core.vars import EVENT_TYPE, EVENT_RULE, EVENT_PATH, SHA256, \
+from ..meow_base.core.meow import valid_job
+from ..meow_base.core.vars import EVENT_TYPE, EVENT_RULE, EVENT_PATH, SHA256, \
     JOB_PARAMETERS, JOB_FILE, META_FILE, SWEEP_STOP, SWEEP_JUMP, \
     SWEEP_START, EVENT_TIME
-from meow_base.core.rule import Rule
-from meow_base.functionality.file_io import read_yaml, write_notebook, \
+from ..meow_base.core.rule import Rule
+from ..meow_base.functionality.file_io import read_yaml, write_notebook, \
     threadsafe_read_status
-from meow_base.functionality.hashing import get_hash
-from meow_base.functionality.meow import create_rules, create_rule
-from meow_base.patterns.file_event_pattern import FileEventPattern, \
+from ..meow_base.functionality.hashing import get_hash
+from ..meow_base.functionality.meow import create_rules, create_rule
+from ..meow_base.patterns.file_event_pattern import FileEventPattern, \
     WATCHDOG_BASE, WATCHDOG_HASH, EVENT_TYPE_WATCHDOG
-from meow_base.recipes.bash_recipe import BashRecipe, BashHandler
-from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe, \
+from ..meow_base.recipes.bash_recipe import BashRecipe, BashHandler
+from ..meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe, \
     PapermillHandler, get_recipe_from_notebook
-from meow_base.recipes.python_recipe import PythonRecipe, PythonHandler
-from shared import BAREBONES_PYTHON_SCRIPT, COMPLETE_PYTHON_SCRIPT, \
+from ..meow_base.recipes.python_recipe import PythonRecipe, PythonHandler
+from .shared import BAREBONES_PYTHON_SCRIPT, COMPLETE_PYTHON_SCRIPT, \
     TEST_JOB_QUEUE, TEST_MONITOR_BASE, TEST_JOB_OUTPUT, BAREBONES_NOTEBOOK, \
     COMPLETE_NOTEBOOK, BAREBONES_BASH_SCRIPT, COMPLETE_BASH_SCRIPT, \
     setup, teardown
