@@ -11,11 +11,10 @@ import itertools
 from copy import deepcopy
 from typing import Any, Union, Tuple, Dict, List
 
-from .vars import VALID_PATTERN_NAME_CHARS, \
+from .vars import VALID_PATTERN_NAME_CHARS, VALID_TRACING, \
     SWEEP_JUMP, SWEEP_START, SWEEP_STOP, NOTIFICATION_KEYS, get_drt_imp_msg
 from ..functionality.validation import valid_string, check_type, \
     check_implementation, valid_dict
-
 
 class BasePattern:
     # A unique identifier for the pattern
@@ -31,10 +30,12 @@ class BasePattern:
     # A collection of various notification settings, to alert users on 
     # completion of any job from this pattern
     notifications:Dict[str,str]
+    # Toggle for if job outputs are traced. Will add overhead if activated.
+    tracing:str
     # TODO Add requirements to patterns
     def __init__(self, name:str, recipe:str, parameters:Dict[str,Any]={}, 
             outputs:Dict[str,Any]={}, sweep:Dict[str,Any]={}, 
-            notifications:Dict[str,Any]={}):
+            notifications:Dict[str,Any]={}, tracing:str=""):
         """BasePattern Constructor. This will check that any class inheriting 
         from it implements its validation functions. It will then call these on
         the input parameters."""
@@ -53,6 +54,8 @@ class BasePattern:
         self.sweep = sweep
         self._is_valid_notifications(notifications)
         self.notifications = notifications
+        self._is_valid_tracing(tracing)
+        self.tracing = tracing
 
     def __new__(cls, *args, **kwargs):
         """A check that this base class is not instantiated itself, only 
@@ -145,6 +148,13 @@ class BasePattern:
             min_length=0,
             strict=True
         )
+
+    def _is_valid_tracing(self, tracing:str)->None:
+        check_type(tracing, str, hint="BasePattern.tracing")
+        if tracing not in VALID_TRACING:
+            raise ValueError(
+                f"Invalid BasePattern.tracing value. Given {tracing} must be "
+                f"one of {VALID_TRACING}")
 
     def assemble_params_dict(self, event:Dict[str,Any]
             )->Union[Dict[str,Any],List[Dict[str,Any]]]:

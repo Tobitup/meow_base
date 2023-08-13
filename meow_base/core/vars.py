@@ -130,6 +130,8 @@ JOB_PARAMETERS = "parameters"
 JOB_SCRIPT_COMMAND = "script_command"
 JOB_RECIPE_COMMAND = "recipe_command"
 JOB_NOTIFICATIONS = "notification"
+JOB_TRACING = "tracing"
+JOB_CREATED_FILES = "created files"
 
 # job statuses
 STATUS_CREATING = "creating"
@@ -147,6 +149,14 @@ PARAMS_FILE = "params.yml"
 SWEEP_START = "start"
 SWEEP_STOP = "stop"
 SWEEP_JUMP = "jump"
+
+# Tracing
+TRACING_NONE = ""
+TRACING_STRACE = "strace"
+VALID_TRACING = [
+    TRACING_NONE,
+    TRACING_STRACE
+]
 
 # debug printing levels
 DEBUG_ERROR = 1

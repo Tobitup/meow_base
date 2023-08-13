@@ -3,7 +3,7 @@
 This file contains the base MEOW conductor defintion. This should be inherited 
 from for all conductor instances.
 
-Author(s): David Marchant
+Author(s): David Marchant, Philip Shun B. Jensen, Iben Lilholm
 """
 import shutil
 import subprocess
@@ -20,7 +20,8 @@ from .vars import VALID_CONDUCTOR_NAME_CHARS, VALID_CHANNELS, \
     BACKUP_JOB_ERROR_FILE, JOB_END_TIME, STATUS_FAILED, JOB_ERROR, \
     DEFAULT_JOB_OUTPUT_DIR, DEFAULT_JOB_QUEUE_DIR, JOB_SCRIPT_COMMAND, \
     JOB_NOTIFICATIONS, JOB_ID, VALID_EMAIL_CHARS, NOTIFICATION_EMAIL, \
-    NOTIFICATION_MSG, JOB_EVENT, get_drt_imp_msg
+    NOTIFICATION_MSG, JOB_EVENT, TRACING_STRACE, JOB_TRACING, JOB_CREATED_FILES, \
+    get_drt_imp_msg
 from ..functionality.file_io import write_file, \
     threadsafe_read_status, threadsafe_update_status, make_dir
 from ..functionality.validation import check_implementation, \
@@ -230,10 +231,51 @@ class BaseConductor:
         # execute the job
         if not notification_message:
             try:
-                result = subprocess.call(
-                    os.path.join(job_dir, job[JOB_SCRIPT_COMMAND]), 
-                    cwd="."
-                )
+                if job[JOB_TRACING] == TRACING_STRACE:
+                    tracefile = f"{os.path.join(job_dir, job[JOB_ID])}.trace"
+                    cmd = f'strace -o {tracefile} --trace=open,openat,mkdir --follow-forks {os.path.join(job_dir, job[JOB_SCRIPT_COMMAND])}',
+                    shell = True
+                else:
+                    tracefile = ""
+                    cmd = os.path.join(job_dir, job[JOB_SCRIPT_COMMAND])
+                    shell = False
+
+
+                result = subprocess.call(cmd, cwd=".", shell=shell)
+
+                if tracefile:
+                    #Checking if the log file was created: 
+                    if not os.path.exists(tracefile):
+                        threadsafe_update_status(
+                            {
+                                JOB_ERROR: "Trace file was not created."
+                            }
+                        )
+                    
+                    if job[JOB_TRACING] == TRACING_STRACE:
+                        # Read the log file and extract unique string: 
+                        filenames = set()
+                        with open(tracefile, 'r') as file: 
+                            for line in file: 
+                                if 'O_CREAT' in line or 'mkdir' in line:
+                                    try:
+                                        start = line.index('"') + 1
+                                        end = line.index('"', start)
+                                        filename = line[start:end]
+                                        filenames.add(filename)
+                                    except ValueError:
+                                        pass
+                                
+                        #delete file because we are done with it: 
+                        os.remove(tracefile)
+
+                        # Update the status file with the finalised status and created files
+                        threadsafe_update_status(
+                            {
+                                JOB_CREATED_FILES: list(filenames)
+                            }, 
+                            meta_file
+                        )
 
                 if result == 0:
                     # Update the status file with the finalised status

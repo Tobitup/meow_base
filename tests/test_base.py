@@ -16,7 +16,7 @@ from ..meow_base.core.vars import SWEEP_STOP, SWEEP_JUMP, SWEEP_START, JOB_ID, \
     JOB_EVENT, JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, \
     JOB_CREATE_TIME, JOB_REQUIREMENTS, STATUS_CREATING, META_FILE, JOB_FILE, \
     DEFAULT_JOB_QUEUE_DIR, NOTIFICATION_EMAIL, NOTIFICATION_KEYS, \
-    JOB_NOTIFICATIONS
+    JOB_NOTIFICATIONS, JOB_TRACING
 from ..meow_base.functionality.file_io import read_yaml
 from ..meow_base.functionality.meow import create_event
 from ..meow_base.patterns.file_event_pattern import FileEventPattern
@@ -147,6 +147,24 @@ class BasePatternTests(unittest.TestCase):
 
         for n in NOTIFICATION_KEYS:
             SharedTestPattern("name", "recipe", {n, "test"})
+
+    # Test tracing validation
+    def testTracing(self)->None:
+        a = SharedTestPattern("name", "recipe")
+        self.assertEqual(a.tracing, "")
+
+        b = SharedTestPattern("name", "recipe", tracing="")
+        self.assertEqual(b.tracing, "")
+
+        c = SharedTestPattern("name", "recipe", tracing="strace")
+        self.assertEqual(c.tracing, "strace")
+
+        with self.assertRaises(ValueError):
+            SharedTestPattern("name", "recipe", tracing="tracing")
+
+        with self.assertRaises(TypeError):
+            SharedTestPattern("name", "recipe", tracing=1)
+
 
     # Test expansion of parameter sweeps
     def testBasePatternExpandSweeps(self)->None:
@@ -843,7 +861,7 @@ class BaseHandleTests(unittest.TestCase):
 
         self.assertIsInstance(result, dict)
         print(result)
-        self.assertEqual(len(result), 11)
+        self.assertEqual(len(result), 12)
 
         self.assertIn(JOB_ID, result)
         self.assertIn(JOB_EVENT, result)
@@ -863,6 +881,8 @@ class BaseHandleTests(unittest.TestCase):
         self.assertEqual(result[JOB_REQUIREMENTS], {})
         self.assertIn(JOB_NOTIFICATIONS, result)
         self.assertEqual(result[JOB_NOTIFICATIONS], {})
+        self.assertIn(JOB_TRACING, result)
+        self.assertEqual(result[JOB_TRACING], "")
 
     # Test creation of meta data file
     def testCreatJobMetaFile(self):

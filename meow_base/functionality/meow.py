@@ -18,7 +18,7 @@ from ..core.rule import Rule
 from ..core.vars import EVENT_PATH, EVENT_RULE, EVENT_TIME, \
     EVENT_TYPE, JOB_CREATE_TIME, JOB_EVENT, JOB_ID, JOB_NOTIFICATIONS, \
     JOB_PATTERN, JOB_RECIPE, JOB_REQUIREMENTS, JOB_RULE, JOB_STATUS, \
-    JOB_TYPE, STATUS_CREATING, SWEEP_JUMP, SWEEP_START, SWEEP_STOP
+    JOB_TRACING, JOB_TYPE, STATUS_CREATING, SWEEP_JUMP, SWEEP_START, SWEEP_STOP 
 
 # core trigger keyword replacements
 KEYWORD_PATH = "{PATH}"
@@ -122,7 +122,8 @@ def create_job_metadata_dict(job_type:str, event:Dict[str,Any],
         JOB_STATUS: STATUS_CREATING,
         JOB_CREATE_TIME: datetime.now(),
         JOB_REQUIREMENTS: event[EVENT_RULE].recipe.requirements,
-        JOB_NOTIFICATIONS: event[EVENT_RULE].pattern.notifications
+        JOB_NOTIFICATIONS: event[EVENT_RULE].pattern.notifications,
+        JOB_TRACING: event[EVENT_RULE].pattern.tracing
     }
 
     return {**extras, **job_dict}

@@ -1,6 +1,11 @@
 # meow_base
 Repository for base MEOW definitions, as well as a some example implementations. 
 
+## Installation
+The package is available on pypi, can can be installed with
+
+    pip install meow_base
+
 ## Core definitons
 
 The core MEOW defintions are found in **core/meow.py** These are parents classes for implementations to use, with certain attributes and functions enabling a certain amount of interchangeability within those classes.

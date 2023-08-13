@@ -17,7 +17,7 @@ from ..meow_base.core.base_handler import BaseHandler
 from ..meow_base.core.base_monitor import BaseMonitor
 from ..meow_base.conductors import LocalPythonConductor
 from ..meow_base.core.vars import JOB_ERROR, META_FILE, JOB_CREATE_TIME, \
-    NOTIFICATION_EMAIL, JOB_EVENT, EVENT_PATH
+    NOTIFICATION_EMAIL, JOB_EVENT, EVENT_PATH, JOB_CREATED_FILES, JOB_ID
 from ..meow_base.core.runner import MeowRunner
 from ..meow_base.functionality.file_io import make_dir, read_file, \
     read_notebook, read_yaml, write_file, lines_to_string
@@ -35,8 +35,8 @@ from .shared import EmailHandler, TEST_JOB_QUEUE, TEST_JOB_OUTPUT, \
     COMPLETE_PYTHON_SCRIPT, TEST_DIR, FILTER_RECIPE, POROSITY_CHECK_NOTEBOOK, \
     SEGMENT_FOAM_NOTEBOOK, GENERATOR_NOTEBOOK, FOAM_PORE_ANALYSIS_NOTEBOOK, \
     IDMC_UTILS_PYTHON_SCRIPT, TEST_DATA, GENERATE_PYTHON_SCRIPT, \
-    setup, teardown, backup_before_teardown, count_non_locks, \
-    check_shutdown_port_in_timeout, check_port_in_use
+    MULTI_PYTHON_SCRIPT, setup, teardown, backup_before_teardown, \
+    count_non_locks, check_shutdown_port_in_timeout, check_port_in_use
 
  
 class FileEventTests(unittest.TestCase):
@@ -1843,6 +1843,139 @@ class FileEventTests(unittest.TestCase):
             os.path.join(TEST_MONITOR_BASE, "foam_ct_data_pore_analysis")))
 
         self.assertEqual(results, good+big+small)
+
+    # Test that strace correctly identifies job outputs
+    def testJobTracing(self)->None:
+        pattern_one = FileEventPattern(
+            "pattern_one", 
+            os.path.join("start", "A.txt"),
+            "recipe_one", 
+            "infile", 
+            parameters={
+                "num":10,
+                "outdir":os.path.join("{BASE}", "output")
+            },
+            tracing="strace")
+        recipe = PythonRecipe(
+            "recipe_one", MULTI_PYTHON_SCRIPT
+        )
+
+        patterns = {
+            pattern_one.name: pattern_one,
+        }
+        recipes = {
+            recipe.name: recipe,
+        }
+
+        runner = MeowRunner(
+            WatchdogMonitor(
+                TEST_MONITOR_BASE,
+                patterns,
+                recipes,
+                settletime=1
+            ), 
+            PythonHandler(
+                job_queue_dir=TEST_JOB_QUEUE
+            ),
+            LocalPythonConductor(pause_time=2),
+            job_queue_dir=TEST_JOB_QUEUE,
+            job_output_dir=TEST_JOB_OUTPUT
+        )
+
+        # Intercept messages between the conductor and runner for testing
+        conductor_to_test_conductor, conductor_to_test_test = Pipe(duplex=True)
+        test_to_runner_runner, test_to_runner_test = Pipe(duplex=True)
+
+        runner.conductors[0].to_runner_job = conductor_to_test_conductor
+
+        for i in range(len(runner.job_connections)):
+            _, obj = runner.job_connections[i]
+
+            if obj == runner.conductors[0]:
+                runner.job_connections[i] = (test_to_runner_runner, runner.job_connections[i][1])
+      
+        runner.start()
+
+        start_dir = os.path.join(TEST_MONITOR_BASE, "start")
+        make_dir(start_dir)
+        self.assertTrue(start_dir)
+        with open(os.path.join(start_dir, "A.txt"), "w") as f:
+            f.write("test data")
+
+        self.assertTrue(os.path.exists(os.path.join(start_dir, "A.txt")))
+
+        loops = 0
+        while loops < 5:
+            # Initial prompt
+            if conductor_to_test_test.poll(5):
+                msg = conductor_to_test_test.recv()
+            else:
+                raise Exception("Timed out")        
+            self.assertEqual(msg, 1)
+            test_to_runner_test.send(msg)
+
+            # Reply
+            if test_to_runner_test.poll(5):
+                msg = test_to_runner_test.recv()
+            else:
+                raise Exception("Timed out")        
+            job_dir = msg
+            conductor_to_test_test.send(msg)
+
+            if isinstance(job_dir, str):
+                # Prompt again once complete
+                if conductor_to_test_test.poll(5):
+                    msg = conductor_to_test_test.recv()
+                else:
+                    raise Exception("Timed out")        
+                self.assertEqual(msg, 1)
+                loops = 5
+
+            loops += 1
+
+        job_dir = job_dir.replace(TEST_JOB_QUEUE, TEST_JOB_OUTPUT)
+
+        self.assertTrue(os.path.exists(os.path.join(start_dir, "A.txt")))
+        self.assertEqual(len(os.listdir(TEST_JOB_OUTPUT)), 1)
+        self.assertTrue(os.path.exists(job_dir))
+
+        runner.stop()
+
+        metafile = os.path.join(job_dir, META_FILE)
+        status = read_yaml(metafile)
+
+        self.assertNotIn(JOB_ERROR, status)
+
+        self.assertIn(JOB_CREATED_FILES, status)
+
+        print(status[JOB_CREATED_FILES])
+
+        self.assertEqual(len(status[JOB_CREATED_FILES]), 13)
+
+
+        self.assertTrue(os.path.exists(
+            os.path.join(TEST_MONITOR_BASE, "output")
+        ))
+        self.assertIn(
+            os.path.join(TEST_MONITOR_BASE, "output"),
+            status[JOB_CREATED_FILES]
+        )
+        for i in range(10):
+            self.assertTrue(os.path.exists(
+                os.path.join(TEST_MONITOR_BASE, "output", str(i))
+            ))
+            self.assertIn(
+                os.path.join(TEST_MONITOR_BASE, "output", str(i)),
+                status[JOB_CREATED_FILES]
+            )
+        self.assertIn(
+            os.path.join(TEST_JOB_QUEUE, status[JOB_ID], f".{os.path.sep}stdout.txt"),
+            status[JOB_CREATED_FILES]
+        )
+        self.assertIn(
+            os.path.join(TEST_JOB_QUEUE, status[JOB_ID], f".{os.path.sep}stderr.txt"),
+            status[JOB_CREATED_FILES]
+        )
 
     def testMonitorIdentification(self)->None:
         monitor_one = WatchdogMonitor(TEST_MONITOR_BASE, {}, {}, name="m1")

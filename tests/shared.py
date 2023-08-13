@@ -1275,6 +1275,24 @@ COMPLETE_PYTHON_SCRIPT = [
     "",
     "print('done')"
 ]
+MULTI_PYTHON_SCRIPT = [
+    "import os",
+    "# Setup parameters",
+    "num = 4",
+    "infile = 'somehere"+ os.path.sep +"particular'",
+    "outdir = 'nowhere"+ os.path.sep +"particular'",
+    "",
+    "with open(infile, 'r') as file:",
+    "    data = file.read()",
+    "",
+    "os.makedirs(outdir, exist_ok=True)",
+    "",
+    "for i in range(num):",
+    "    with open(os.path.join(outdir, str(i)), 'w') as file:",
+    "        file.write(data)",
+    "",
+    "print('done')"
+]
 IDMC_UTILS_PYTHON_SCRIPT = [
     "import matplotlib.pyplot as plt",
     "from sklearn import mixture",

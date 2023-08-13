@@ -16,7 +16,7 @@ from ..meow_base.core.meow import EVENT_KEYS
 from ..meow_base.core.rule import Rule
 from ..meow_base.core.vars import CHAR_LOWERCASE, CHAR_UPPERCASE, \
     SHA256, EVENT_TYPE, EVENT_PATH, LOCK_EXT, EVENT_RULE, JOB_PARAMETERS, \
-    PYTHON_FUNC, JOB_ID, JOB_EVENT, JOB_ERROR, STATUS_DONE, \
+    PYTHON_FUNC, JOB_ID, JOB_EVENT, JOB_ERROR, STATUS_DONE, JOB_TRACING, \
     JOB_TYPE, JOB_PATTERN, JOB_RECIPE, JOB_RULE, JOB_STATUS, JOB_CREATE_TIME, \
     JOB_REQUIREMENTS, JOB_TYPE_PAPERMILL, STATUS_CREATING
 from ..meow_base.functionality.debug import setup_debugging
@@ -713,6 +713,8 @@ class MeowTests(unittest.TestCase):
         self.assertIsInstance(job_dict[JOB_CREATE_TIME], datetime)
         self.assertIn(JOB_REQUIREMENTS, job_dict)
         self.assertEqual(job_dict[JOB_REQUIREMENTS], {})
+        self.assertIn(JOB_TRACING, job_dict)
+        self.assertEqual(job_dict[JOB_TRACING], "")
 
     # Test that replace_keywords replaces MEOW keywords in a given dictionary
     def testReplaceKeywords(self)->None:

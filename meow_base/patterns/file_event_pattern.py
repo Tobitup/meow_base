@@ -94,11 +94,12 @@ class FileEventPattern(BasePattern):
     def __init__(self, name:str, triggering_path:str, recipe:str, 
             triggering_file:str, event_mask:List[str]=_DEFAULT_MASK, 
             parameters:Dict[str,Any]={}, outputs:Dict[str,Any]={}, 
-            sweep:Dict[str,Any]={}, notifications:Dict[str,Any]={}):
+            sweep:Dict[str,Any]={}, notifications:Dict[str,Any]={}, 
+            tracing:str=""):
         """FileEventPattern Constructor. This is used to match against file 
         system events, as caught by the python watchdog module."""
         super().__init__(name, recipe, parameters=parameters, outputs=outputs, 
-            sweep=sweep, notifications=notifications)
+            sweep=sweep, notifications=notifications, tracing=tracing)
         self._is_valid_triggering_path(triggering_path)
         self.triggering_path = triggering_path
         self._is_valid_triggering_file(triggering_file)

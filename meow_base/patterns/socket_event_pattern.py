@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Tuple
 from .file_event_pattern import WATCHDOG_EVENT_KEYS, \
     create_watchdog_event, KEYWORD_BASE, KEYWORD_REL_PATH, KEYWORD_REL_DIR, \
     KEYWORD_DIR, KEYWORD_FILENAME, KEYWORD_PREFIX, KEYWORD_EXTENSION, \
-    WATCHDOG_BASE, WATCHDOG_HASH
+    WATCHDOG_BASE
 from ..core.vars import VALID_RECIPE_NAME_CHARS, \
     VALID_VARIABLE_NAME_CHARS, DEBUG_INFO
 from ..core.base_recipe import BaseRecipe
@@ -90,9 +90,9 @@ class SocketPattern(BasePattern):
     def __init__(self, name:str, triggering_port:int, recipe:str, 
             triggering_message:str, parameters: Dict[str,Any]={}, 
             outputs:Dict[str,Any]={}, sweep:Dict[str,Any]={}, 
-            notifications:Dict[str,Any]={}):
+            notifications:Dict[str,Any]={}, tracing:str=""):
         super().__init__(name, recipe, parameters=parameters, outputs=outputs, 
-            sweep=sweep, notifications=notifications)
+            sweep=sweep, notifications=notifications, tracing=tracing)
         self._is_valid_port(triggering_port)
         self.triggering_port = triggering_port
         self._is_valid_triggering_message(triggering_message)
