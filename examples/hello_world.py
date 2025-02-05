@@ -37,7 +37,8 @@ recipes = {
 
 # Reset the monitored file directory and runner directories
 for f in [FILE_BASE, "job_queue", "job_output"]:
-    shutil.rmtree(f)
+     if os.path.exists(f):
+        shutil.rmtree(f)
 os.makedirs(os.path.join(FILE_BASE, INPUT_DIR))
 
 # Setup the runner
