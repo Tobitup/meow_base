@@ -148,4 +148,4 @@ dmypy.json
 Dockerfile
 shell.nix
 strace.log
-
+.devcontainer/
