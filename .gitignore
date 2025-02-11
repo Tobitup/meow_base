@@ -143,3 +143,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Nix Stuff
+Dockerfile
+shell.nix
+strace.log
+
