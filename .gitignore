@@ -149,3 +149,6 @@ Dockerfile
 shell.nix
 strace.log
 .devcontainer/
+
+# Network tests
+# /network_test

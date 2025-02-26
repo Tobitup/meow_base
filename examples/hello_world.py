@@ -9,8 +9,12 @@ from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
 
-FILE_BASE = "runner_base"
+FILE_BASE = os.path.join("meow_base", "runner_base")
 INPUT_DIR = "input_dir"
+
+
+# print("CWD:", os.getcwd())
+# print("FILE_BASE is:", FILE_BASE)
 
 # Setup pattern and recipe
 hello_pattern = FileEventPattern(
@@ -19,11 +23,25 @@ hello_pattern = FileEventPattern(
     "hello_recipe", 
     "infile", 
 )
+
+print("line 27")
+
 hello_recipe = PythonRecipe(
     "hello_recipe", 
     [
+        "import socket", 
+        "HOST_IP = '172.20.28.89'", 
+        "HOST_PORT = 10001",
         "infile = 'placeholder'",
-        "print(f'Hello as triggered by {infile}\\n')"
+        "message = f'Hello as triggered by {infile}\\n'",
+        "print(message)",
+        "try:",
+        "    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:",
+        "        sock.connect((HOST_IP, HOST_PORT))",
+        "        sock.sendall(message.encode())",
+        "        sock.close()",
+        "except Exception as e:",
+        "    print(f'Failed to send debug message: {e}')"
     ]
 )
 
@@ -40,6 +58,8 @@ for f in [FILE_BASE, "job_queue", "job_output"]:
      if os.path.exists(f):
         shutil.rmtree(f)
 os.makedirs(os.path.join(FILE_BASE, INPUT_DIR))
+
+print("line 61")
 
 # Setup the runner
 hello_runner = MeowRunner(
@@ -59,9 +79,13 @@ hello_runner = MeowRunner(
 # Start the runner
 hello_runner.start()
 
+print("line 81")
+
 # Create the triggering file
 Path(os.path.join(os.path.join(FILE_BASE, INPUT_DIR, "A.txt"))).touch()
 
 # Give time for the runner to run
 time.sleep(5)
 hello_runner.stop()
+
+print("line 90")

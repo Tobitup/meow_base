@@ -9,7 +9,7 @@ from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
 
-FILE_BASE = "runner_base"
+FILE_BASE = os.path.join("meow_base", "runner_base")
 INPUT_DIR = "input_dir"
 MIDDLE_DIR = "middle_dir"
 FINAL_DIR = "final_dir"
