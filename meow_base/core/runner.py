@@ -10,6 +10,8 @@ import os
 import sys
 import threading
 
+import socket # Networking functionality
+
 from multiprocessing import Pipe
 from typing import Any, Union, Dict, List, Type, Tuple
 
@@ -58,7 +60,10 @@ class MeowRunner:
 
         self._is_valid_job_queue_dir(job_queue_dir)
         self._is_valid_job_output_dir(job_output_dir)
-
+        
+        # self.ip
+        # self.port
+        
         self.job_connections = []
         self.event_connections = []
 
@@ -426,3 +431,23 @@ class MeowRunner:
         valid_dir_path(job_output_dir, must_exist=False)
         if not os.path.exists(job_output_dir):
             make_dir(job_output_dir)
+
+    def setup_ssh_connection(self, ip_addr, port):
+        """Function to setup an SSH connection to a remote machine."""
+        # TODO(tt): make checks for structure of ip_addr and port.        
+        
+        self.ip_addr = ip_addr
+        self.port = port
+        return ip_addr, port 
+    
+    def send_message(self, message):
+        """Function to send a message over the socket connection when 
+        there is a status to report"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect((self.ip_addr, self.port))
+                print(f'IP: {self.ip_addr}, Port: {self.port}')
+                print(f'Sending message: {message}')
+                sock.sendall(message.encode())
+        except Exception as e:
+            print(f'Failed to send message: {e}')

@@ -29,19 +29,7 @@ print("line 27")
 hello_recipe = PythonRecipe(
     "hello_recipe", 
     [
-        "import socket", 
-        "HOST_IP = '172.20.28.89'", 
-        "HOST_PORT = 10001",
-        "infile = 'placeholder'",
-        "message = f'Hello as triggered by {infile}\\n'",
-        "print(message)",
-        "try:",
-        "    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:",
-        "        sock.connect((HOST_IP, HOST_PORT))",
-        "        sock.sendall(message.encode())",
-        "        sock.close()",
-        "except Exception as e:",
-        "    print(f'Failed to send debug message: {e}')"
+        
     ]
 )
 

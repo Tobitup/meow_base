@@ -21,22 +21,17 @@ def start_listener():
             if not data:
                 break
             print(data.decode())
-            
-        # server_socket.close()
-        # print("Socket closed!")
-
 
 # Start the listener thread
 listening_thread = threading.Thread(target=start_listener, daemon=True)
 listening_thread.start()
 
 # SSH Connection
-print("SSH")
+print("SSHD")
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 try:
     client.connect(REMOTE_IP, username=USERNAME, password=PASSWORD)
-    shell = client.invoke_shell()
  
     print("Connected")
 
