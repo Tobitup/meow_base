@@ -74,7 +74,6 @@ class MeowRunner:
 
         # These become redundant with a config file in .ssh
         #self.usr = usr
-        #self.ip_addr = ip_addr
         self.debug_port = debug_port
 
 
@@ -147,6 +146,8 @@ class MeowRunner:
         # Setup queues
         self.event_queue = []
         self.job_queue = []
+
+        self.local_ip_addr = self._get_local_ip()
 
 
         if network == 1:
@@ -279,7 +280,7 @@ class MeowRunner:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             #print(f"DEBUG: Binding listener to {self.ip_addr}:{self.port}")
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("0.0.0.0", self.debug_port))
+            s.bind((self.local_ip_addr, self.debug_port))
             s.listen()
             print_debug(self._print_target, self.debug_level,
                 "Listener thread listening...", DEBUG_INFO)
@@ -580,23 +581,28 @@ class MeowRunner:
                     break
         
 
+    def _get_local_ip(self):
+        """Function to get the local IP address"""
+        local_ip = socket.gethostbyname(socket.gethostname())
+        print(f"DEBUGggg: Local IP: {local_ip}")
+        return local_ip
+
 
     def setup_ssh_connection_to_remote(self, ssh_config_path:Any=os.path.expanduser("~/.ssh/config")):
-        """Function to setup an SSH connection to a remote machine, and tell it to send debug to given socket."""
+        """Function to setup an SSH connection to a remote machine, and tell it to send debug msg's to given socket."""
         try:
             ssh_config = paramiko.SSHConfig.from_path(ssh_config_path)
             found_conf = ssh_config.lookup(self.ssh_config_alias)
             #print(f"Host Conf: {found_conf}")
 
             # Get the values if present in the config file
-            self.conf_host_name = found_conf.get("hostname")
+            conf_host_name = found_conf.get("hostname")
             conf_user = found_conf.get("user")
             conf_port = found_conf.get("port")
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to load SSH config: {e}", DEBUG_WARNING)
             return
-
 
         client = paramiko.SSHClient()
         client.load_system_host_keys()
@@ -607,21 +613,18 @@ class MeowRunner:
         # This adds it, so no warning (Maybe not best practice but works here)
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        client.connect(hostname=self.conf_host_name, username=conf_user, port=conf_port, key_filename=self.ssh_private_key_dir)
+        client.connect(hostname=conf_host_name, username=conf_user, port=conf_port, key_filename=self.ssh_private_key_dir)
         print_debug(self._print_target, self.debug_level,
             "SSH connection established", DEBUG_INFO)
     
 
         meow_base_path = "/workspaces/meow_base"
-        stdin, stdout, stderr = client.exec_command(f'cd {meow_base_path}/examples && source /app/venv/bin/activate && python3 skeleton_runner.py')
+        #meow_base_path = "/home/rlf574/meow_base"
+        local_ip_addr = self._get_local_ip()
+        stdin, stdout, stderr = client.exec_command(f'export HOST_IP={local_ip_addr} && cd {meow_base_path}/examples && source /app/venv/bin/activate && python3 skeleton_runner.py')
     
         #print("Remote stdout:", stdout.read().decode())
         #print("Remote stderr:", stderr.read().decode())
-
-
-        """ stdin, stdout, stderr = client.exec_command(f'cd {meow_base_path}/examples && echo "Hello from the remote machine"')
-        print("Remote stdout:", stdout.read().decode())
-        print("Remote stderr:", stderr.read().decode()) """
 
         # Bad temp fix... maybe
         self.remote_alive = True
@@ -644,7 +647,7 @@ class MeowRunner:
         there is a status to report"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect(("0.0.0.0", self.debug_port))
+                sock.connect((self.ip_addr, self.debug_port))
                 #print(f'IP: {self.ip_addr}, Port: {self.port}')
                 #print(f'Sending message: {message}')
 
@@ -669,7 +672,7 @@ class MeowRunner:
             return
         else:
             conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
-            msg = f"Attached Conductors to {self.name}: {", ".join(conductor_names)}"
+            msg = f"Attached Conductors to {self.name}: {', '.join(conductor_names)}"
             self.send_message(msg)
     
 
@@ -682,7 +685,7 @@ class MeowRunner:
             return
         else:
             handler_names = [handler.__class__.__name__ for handler in self.handlers]
-            msg = f"Attached Handlers to {self.name}: {", ".join(handler_names)}"
+            msg = f"Attached Handlers to {self.name}: {', '.join(handler_names)}"
             self.send_message(msg)
 
 
@@ -695,7 +698,7 @@ class MeowRunner:
             return
         else:
             monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
-            msg = f"Attached Monitors to {self.name}: {", ".join(monitor_names)}"
+            msg = f"Attached Monitors to {self.name}: {', '.join(monitor_names)}"
             self.send_message(msg)
 
 
@@ -705,11 +708,11 @@ class MeowRunner:
         pass
 
 
-    def check_remote_runner_alive(self):
-        """Function to check if the remote runner is still alive"""
+    """ def check_remote_runner_alive(self):
+        ""Function to check if the remote runner is still alive""
         if self.remote_alive:
             return True
         else:
             # shutdown local runner
-            self.stop()
+            self.stop() """
         
