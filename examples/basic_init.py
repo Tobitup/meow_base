@@ -1,6 +1,12 @@
 import os
 import shutil
+import sys
 import time
+
+import meow_base.core
+import argparse
+
+
 
 from pathlib import Path
 
@@ -9,13 +15,19 @@ from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
 
-#FILE_BASE = os.path.join("meow_base", "runner_base")
+
 FILE_BASE = "runner_base"
 INPUT_DIR = "input_dir"
 
 
 # print("CWD:", os.getcwd())
 # print("FILE_BASE is:", FILE_BASE)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--start", help="start the remote runner", action="store_true")
+parser.add_argument("--network", help="reset network to 0", action="store_const", const=1, default=0)
+args = parser.parse_args()
+
 
 # Setup pattern and recipe
 hello_pattern = FileEventPattern(
@@ -25,7 +37,6 @@ hello_pattern = FileEventPattern(
     "infile", 
 )
 
-print("line 27")
 
 hello_recipe = PythonRecipe(
     "hello_recipe", 
@@ -50,10 +61,8 @@ for f in [FILE_BASE, "job_queue", "job_output"]:
         shutil.rmtree(f)
 os.makedirs(os.path.join(FILE_BASE, INPUT_DIR))
 
-print("line 61")
-
 # Setup the runner
-hello_runner = MeowRunner(
+""" hello_runner = MeowRunner(
     WatchdogMonitor(
         FILE_BASE,
         patterns,
@@ -64,19 +73,43 @@ hello_runner = MeowRunner(
     ),
     LocalPythonConductor(
         pause_time=1
-    )
+    ),
+    logging = 10,
+    name="Local Runner"
+    
+) """
+
+
+
+
+local_runner = MeowRunner(
+    WatchdogMonitor(
+        FILE_BASE,
+        patterns,
+        recipes
+    ),
+    PythonHandler(
+        pause_time=1
+    ),
+    LocalPythonConductor(
+        pause_time=1
+    ),
+    logging = 10,
+    name="Local Runner", network = 1, ssh_config_alias="Container"
 )
 
+
 # Start the runner
-hello_runner.start()
+""" if not args.start:
+    hello_runner.start() """
 
-print("line 81")
+""" if args.start:
+    remote_runner.start() """
 
-# Create the triggering file
-Path(os.path.join(os.path.join(FILE_BASE, INPUT_DIR, "A.txt"))).touch()
+""" if not args.start:
+    hello_runner.stop() """
 
-# Give time for the runner to run
-time.sleep(5)
-hello_runner.stop()
 
-print("line 90")
+local_runner.start()
+local_runner.check_remote_runner_alive()
+#local_runner.stop()

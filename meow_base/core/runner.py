@@ -7,8 +7,11 @@ with monitors, handlers, and conductors being swappable at initialisation.
 Author(s): David Marchant
 """
 import os
+import socket
 import sys
 import threading
+import paramiko
+import select
 
 from multiprocessing import Pipe
 from typing import Any, Union, Dict, List, Type, Tuple
@@ -51,10 +54,29 @@ class MeowRunner:
             conductors:Union[BaseConductor,List[BaseConductor]],
             job_queue_dir:str=DEFAULT_JOB_QUEUE_DIR,
             job_output_dir:str=DEFAULT_JOB_OUTPUT_DIR,
-            print:Any=sys.stdout, logging:int=0)->None:
+            print:Any=sys.stdout, logging:int=0,
+
+            # Naming option for Runners
+            name:str="Unnamed Runner",
+
+            # Added Network Options
+            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), debug_port:int=10001 )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
         or consume."""
+
+
+        self.name = name
+        self.network = network
+        self.ssh_config_alias = ssh_config_alias
+       
+        self.ssh_private_key_dir = ssh_private_key_dir
+
+        # These become redundant with a config file in .ssh
+        #self.usr = usr
+        #self.ip_addr = ip_addr
+        self.debug_port = debug_port
+
 
         self._is_valid_job_queue_dir(job_queue_dir)
         self._is_valid_job_output_dir(job_output_dir)
@@ -113,12 +135,31 @@ class MeowRunner:
         self._stop_han_con_pipe = Pipe()
         self._han_con_worker = None
 
+
+
+        # Create new channel for sending stop messages to listener threads
+        self._stop_listener_pipe = Pipe()
+        self._network_listener_worker = None
+
         # Setup debugging
         self._print_target, self.debug_level = setup_debugging(print, logging)
 
         # Setup queues
         self.event_queue = []
         self.job_queue = []
+
+
+        if network == 1:
+            print_debug(self._print_target, self.debug_level,
+                "Network mode enabled", DEBUG_INFO)
+            print_debug(self._print_target, self.debug_level,
+                f"Config Alias Name: {self.ssh_config_alias}", DEBUG_INFO)
+            print_debug(self._print_target, self.debug_level,
+                f"Port: {self.debug_port}", DEBUG_INFO)
+            print_debug(self._print_target, self.debug_level,
+                f"SSH Key Directory: {self.ssh_private_key_dir}", DEBUG_INFO)
+
+
 
     def run_monitor_handler_interaction(self)->None:
         """Function to be run in its own thread, to handle any inbound messages
@@ -230,11 +271,52 @@ class MeowRunner:
                         # If nothing valid then send a message
                         if not valid:
                             connection.send(1)
+
+    
+    def setup_listener_thread(self) -> None:
+        """Function to setup a listener thread to listen for messages from 
+        the remote machine."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            #print(f"DEBUG: Binding listener to {self.ip_addr}:{self.port}")
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("0.0.0.0", self.debug_port))
+            s.listen()
+            print_debug(self._print_target, self.debug_level,
+                "Listener thread listening...", DEBUG_INFO)
+            
+            all_inputs = [s, self._stop_listener_pipe[0]]
+            #print(f"DEBUG: All inputs: {all_inputs}")
+            while True:
+                ready, _, _ = select.select(all_inputs, [], [])
+                print(f"DEBUG: Ready: {ready}")
+
+                # If we get a message from the stop channel, then finish
+                if self._stop_listener_pipe[0] in ready:
+                    print_debug(self._print_target, self.debug_level,
+                        "Listener thread stopped", DEBUG_INFO)
+                    return
+                
+
+                if s in ready:
+                    conn, addr = s.accept()
+                    print_debug(self._print_target, self.debug_level,
+                        f"Accepted connection from {addr}", DEBUG_INFO)
+                    listener_thread = threading.Thread(target=self.handle_listener_thread, args=(conn, addr))
+                    listener_thread.daemon = True
+                    listener_thread.start()
+                    """ print_debug(self._print_target, self.debug_level,
+                        "Listener thread started", DEBUG_INFO)
+                    print_debug(self._print_target, self.debug_level,
+                        f"Listening on port {self.port}", DEBUG_INFO) """
+
+
     
     def start(self)->None:
         """Function to start the runner by starting all of the constituent 
         monitors, handlers and conductors, along with managing interaction 
         threads."""
+
+
         # Start all monitors
         for monitor in self.monitors:
             monitor.start()
@@ -280,6 +362,46 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level, 
                 msg, DEBUG_WARNING)
             raise RuntimeWarning(msg)
+        
+        print_debug(self._print_target, self.debug_level,
+                f"Started {self.name}", DEBUG_INFO)
+
+        """ if self.network == 1:
+
+            # Send attached conductors, handlers & monitors to the remote machine
+            self.send_attached_conductors()
+            self.send_attached_handlers()
+
+            # Send a message to the remote machine
+            print_debug(self._print_target, self.debug_level,
+                "Message sent to remote machine", DEBUG_INFO) """
+        
+
+
+        if self.network == 1:
+            print_debug(self._print_target, self.debug_level,
+                "Setting up network connection...", DEBUG_INFO)
+            if self._network_listener_worker is None:
+                self._network_listener_worker = threading.Thread(
+                    target=self.setup_listener_thread,
+                    args=[])
+                self._network_listener_worker.daemon = True
+                self._network_listener_worker.start()
+                print_debug(self._print_target, self.debug_level, 
+                    "Starting MeowRunner network listener...", DEBUG_INFO)
+            else:
+                msg = "Repeated calls to start MeowRunner network listener " \
+                    "have no effect."
+                print_debug(self._print_target, self.debug_level, 
+                    msg, DEBUG_WARNING)
+                raise RuntimeWarning(msg)
+            
+            
+            self.setup_ssh_connection_to_remote()
+            print_debug(self._print_target, self.debug_level,
+                "SSH connection established", DEBUG_INFO)
+        
+
 
     def stop(self)->None:
         """Function to stop the runner by stopping all of the constituent 
@@ -322,6 +444,19 @@ class MeowRunner:
             self._han_con_worker.join()
         print_debug(self._print_target, self.debug_level, 
             "Job conductor thread stopped", DEBUG_INFO)
+        
+
+        # Maybe not needed as threads close their connections on their own
+        if self._network_listener_worker is None:
+            msg = "Cannot stop network listener thread that is not started."
+            print_debug(self._print_target, self.debug_level,
+                msg, DEBUG_WARNING)
+            raise RuntimeWarning(msg)
+        else:
+            self._stop_listener_pipe[1].send(1)
+            self._network_listener_worker.join()
+        print_debug(self._print_target, self.debug_level,
+            "Network listener thread stopped", DEBUG_INFO)
 
     def get_monitor_by_name(self, queried_name:str)->BaseMonitor:
         """Gets a runner monitor with a name matching the queried name. Note 
@@ -426,3 +561,155 @@ class MeowRunner:
         valid_dir_path(job_output_dir, must_exist=False)
         if not os.path.exists(job_output_dir):
             make_dir(job_output_dir)
+
+    
+    # Used in network listner
+    def handle_listener_thread(self, conn, addr):
+        with conn:
+            print(f'Connected by {addr}')
+            while True:
+                try:
+                    data = conn.recv(1024)
+                    if not data:
+                        break
+                    conn.sendall(data)
+                    print(f"LISTENING: {data.decode()}", flush=True)
+                except Exception as e:
+                    print_debug(self._print_target, self.debug_level,
+                        f"Failed to send message: {e}", DEBUG_WARNING)
+                    break
+        
+
+
+    def setup_ssh_connection_to_remote(self, ssh_config_path:Any=os.path.expanduser("~/.ssh/config")):
+        """Function to setup an SSH connection to a remote machine, and tell it to send debug to given socket."""
+        try:
+            ssh_config = paramiko.SSHConfig.from_path(ssh_config_path)
+            found_conf = ssh_config.lookup(self.ssh_config_alias)
+            #print(f"Host Conf: {found_conf}")
+
+            # Get the values if present in the config file
+            self.conf_host_name = found_conf.get("hostname")
+            conf_user = found_conf.get("user")
+            conf_port = found_conf.get("port")
+        except Exception as e:
+            print_debug(self._print_target, self.debug_level,
+                f"Failed to load SSH config: {e}", DEBUG_WARNING)
+            return
+
+
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+
+        # This warns if the host is unknown
+        """client.set_missing_host_key_policy(paramiko.WarningPolicy())"""
+
+        # This adds it, so no warning (Maybe not best practice but works here)
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        client.connect(hostname=self.conf_host_name, username=conf_user, port=conf_port, key_filename=self.ssh_private_key_dir)
+        print_debug(self._print_target, self.debug_level,
+            "SSH connection established", DEBUG_INFO)
+    
+
+        meow_base_path = "/workspaces/meow_base"
+        stdin, stdout, stderr = client.exec_command(f'cd {meow_base_path}/examples && source /app/venv/bin/activate && python3 skeleton_runner.py')
+    
+        #print("Remote stdout:", stdout.read().decode())
+        #print("Remote stderr:", stderr.read().decode())
+
+
+        """ stdin, stdout, stderr = client.exec_command(f'cd {meow_base_path}/examples && echo "Hello from the remote machine"')
+        print("Remote stdout:", stdout.read().decode())
+        print("Remote stderr:", stderr.read().decode()) """
+
+        # Bad temp fix... maybe
+        self.remote_alive = True
+
+        client.close()
+
+
+
+
+    # Maybe an idea for checking common file paths for storing ssh keys and look through them. Maybe not needed or out of scope
+    def validate_ssh_filepath(self):
+        """Function to validate the SSH key file path"""
+        if not os.path.exists(self.ssh_key_dir):
+            print_debug(self._print_target, self.debug_level,
+                f"SSH Key directory '{self.ssh_key_dir}' does not exist", DEBUG_WARNING)   
+
+
+    def send_message(self, message):
+        """Function to send a message over the socket connection when 
+        there is a status to report"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect(("0.0.0.0", self.debug_port))
+                #print(f'IP: {self.ip_addr}, Port: {self.port}')
+                #print(f'Sending message: {message}')
+
+
+                """ print_debug(self._print_target, self.debug_level,
+                    f"Sending message: {message}", DEBUG_INFO) """
+                
+                message = f"{self.name}: {message}\n"
+                sock.sendall(message.encode())
+                sock.shutdown(socket.SHUT_RDWR)
+        except Exception as e:
+            print_debug(self._print_target, self.debug_level,
+                f"Failed to send message: {e}", DEBUG_WARNING)
+
+    
+    def send_attached_conductors(self):
+        """Function to send attached conductors to the remote machine"""
+
+        if not self.conductors:
+            msg = f"No Conductors attached to {self.name}"
+            self.send_message(msg)
+            return
+        else:
+            conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
+            msg = f"Attached Conductors to {self.name}: {", ".join(conductor_names)}"
+            self.send_message(msg)
+    
+
+    def send_attached_handlers(self):
+        """Function to send attached handlers to the remote machine"""
+
+        if not self.handlers:
+            msg = f"No Handlers attached to {self.name}"
+            self.send_message(msg)
+            return
+        else:
+            handler_names = [handler.__class__.__name__ for handler in self.handlers]
+            msg = f"Attached Handlers to {self.name}: {", ".join(handler_names)}"
+            self.send_message(msg)
+
+
+    def send_attached_monitors(self):
+        """Function to send attached handlers to the remote machine"""
+
+        if not self.monitors:
+            msg = f"No Monitors attached to {self.name}"
+            self.send_message(msg)
+            return
+        else:
+            monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
+            msg = f"Attached Monitors to {self.name}: {", ".join(monitor_names)}"
+            self.send_message(msg)
+
+
+    # Maybe usefull - !Not Done!
+    def send_all_attached_components(self):
+        """Function to send all attached components to the remote machine - (monitors, conductors, handlers)"""
+        pass
+
+
+    def check_remote_runner_alive(self):
+        """Function to check if the remote runner is still alive"""
+        if self.remote_alive:
+            return True
+        else:
+            # shutdown local runner
+            self.stop()
+        
