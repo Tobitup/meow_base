@@ -4,6 +4,7 @@ from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
 
+host_ip = os.environ.get("HOST_IP")
 
 FILE_BASE = "runner_base"
 INPUT_DIR = "input_dir"
@@ -49,7 +50,8 @@ remote_runner = MeowRunner(
     name="Remote Runner"
 )
 
-
+# Currnetly needed to set the host IP back to the local machine
+remote_runner.ip_addr = host_ip
 
 remote_runner.start()
 remote_runner.send_attached_conductors()

@@ -111,5 +111,5 @@ local_runner = MeowRunner(
 
 
 local_runner.start()
-local_runner.check_remote_runner_alive()
-#local_runner.stop()
+#local_runner.check_remote_runner_alive()
+local_runner.stop()
