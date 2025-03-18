@@ -3,6 +3,7 @@ from meow_base.patterns import FileEventPattern, WatchdogMonitor
 from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
+import time
 
 host_ip = os.environ.get("HOST_IP")
 
@@ -53,11 +54,22 @@ remote_runner = MeowRunner(
 # Currnetly needed to set the host IP back to the local machine
 remote_runner.ip_addr = host_ip
 
+# remote_runner.ip_addr = "127.0.0.1"
+# remote_runner.debug_port = 10002
+
+
 remote_runner.start()
+# remote_runner.send_message("Hello from remote!")
+# remote_runner.open_remote_handshake_socket_async()
+
 remote_runner.send_attached_conductors()
 remote_runner.send_attached_handlers()
 remote_runner.send_attached_monitors()
 
+
+
+
+
 #remote_runner.check_remote_runner_alive()
 
-#remote_runner.stop()
+# remote_runner.stop()

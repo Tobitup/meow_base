@@ -12,6 +12,9 @@ import sys
 import threading
 import paramiko
 import select
+import re
+import ast
+import time
 
 from multiprocessing import Pipe
 from typing import Any, Union, Dict, List, Type, Tuple
@@ -139,6 +142,9 @@ class MeowRunner:
         # Create new channel for sending stop messages to listener threads
         self._stop_listener_pipe = Pipe()
         self._network_listener_worker = None
+        
+        self._stop_remote_listener_pipe = Pipe()
+        self._remote_network_listener_worker = None
 
         # Setup debugging
         self._print_target, self.debug_level = setup_debugging(print, logging)
@@ -149,6 +155,9 @@ class MeowRunner:
 
         self.local_ip_addr = self._get_local_ip()
 
+        self.remote_alive = False
+        self.remote_runner_name = None
+
 
         if network == 1:
             print_debug(self._print_target, self.debug_level,
@@ -158,7 +167,7 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level,
                 f"Port: {self.debug_port}", DEBUG_INFO)
             print_debug(self._print_target, self.debug_level,
-                f"SSH Key Directory: {self.ssh_private_key_dir}", DEBUG_INFO)
+                f"SSH Key Directory: {self.ssh_private_key_dir}\n", DEBUG_INFO)
 
 
 
@@ -305,11 +314,38 @@ class MeowRunner:
                     listener_thread = threading.Thread(target=self.handle_listener_thread, args=(conn, addr))
                     listener_thread.daemon = True
                     listener_thread.start()
-                    """ print_debug(self._print_target, self.debug_level,
-                        "Listener thread started", DEBUG_INFO)
-                    print_debug(self._print_target, self.debug_level,
-                        f"Listening on port {self.port}", DEBUG_INFO) """
+                    # print_debug(self._print_target, self.debug_level,
+                    #     "Listener thread started", DEBUG_INFO)
+                    # print_debug(self._print_target, self.debug_level,
+                    #     f"Listening on port {self.port}", DEBUG_INFO)
 
+    def setup_remote_listener_thread(self) -> None:
+        """Function similar to setup_listener_thread, customized for the remote runner."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((self.local_ip_addr, 10003))
+            s.listen()
+            print_debug(self._print_target, self.debug_level,
+                "Remote listener thread listening...", DEBUG_INFO)
+            
+            all_inputs = [s, self._stop_remote_listener_pipe[0]]
+            while True:
+                ready, _, _ = select.select(all_inputs, [], [])
+                if self._stop_remote_listener_pipe[0] in ready:
+                    print_debug(self._print_target, self.debug_level,
+                        "Remote listener thread stopped", DEBUG_INFO)
+                    return
+                if s in ready:
+                    conn, addr = s.accept()
+                    print_debug(self._print_target, self.debug_level,
+                        f"Remote accepted connection from {addr}", DEBUG_INFO)
+                    listener_thread = threading.Thread(
+                        target=self.handle_listener_thread,
+                        args=(conn, addr))
+                    listener_thread.daemon = True
+                    listener_thread.start()
+                    print_debug(self._print_target, self.debug_level,
+                        "Remote listener thread started", DEBUG_INFO)
 
     
     def start(self)->None:
@@ -367,15 +403,15 @@ class MeowRunner:
         print_debug(self._print_target, self.debug_level,
                 f"Started {self.name}", DEBUG_INFO)
 
-        """ if self.network == 1:
+        # if self.network == 1:
 
-            # Send attached conductors, handlers & monitors to the remote machine
-            self.send_attached_conductors()
-            self.send_attached_handlers()
+        #     # Send attached conductors, handlers & monitors to the remote machine
+        #     self.send_attached_conductors()
+        #     self.send_attached_handlers()
 
-            # Send a message to the remote machine
-            print_debug(self._print_target, self.debug_level,
-                "Message sent to remote machine", DEBUG_INFO) """
+        #     # Send a message to the remote machine
+        #     print_debug(self._print_target, self.debug_level,
+        #         "Message sent to remote machine", DEBUG_INFO)
         
 
 
@@ -383,6 +419,7 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level,
                 "Setting up network connection...", DEBUG_INFO)
             if self._network_listener_worker is None:
+                # Setting up listening thread
                 self._network_listener_worker = threading.Thread(
                     target=self.setup_listener_thread,
                     args=[])
@@ -402,6 +439,31 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level,
                 "SSH connection established", DEBUG_INFO)
         
+        # if name has something with "remote" it should start a listening socket and
+        # connect to the local runner with a 3-way handshake 
+        if re.search(r"remote", self.name, re.IGNORECASE):
+            print_debug(self._print_target, self.debug_level, 
+                    "Remote Runner Detected", DEBUG_INFO)
+            print_debug(self._print_target, self.debug_level,
+                f"Name of runner is: {self.name}", DEBUG_INFO)
+            
+            if self._remote_network_listener_worker is None:
+                self._remote_network_listener_worker = threading.Thread(
+                    target=self.setup_remote_listener_thread,
+                    args=[])
+                self._remote_network_listener_worker.daemon = True
+                self._remote_network_listener_worker.start()
+                print_debug(self._print_target, self.debug_level,
+                    "Starting Remote MeowRunner network listener...", DEBUG_INFO)
+            else:
+                msg = "Repeated calls to start MeowRunner remote network listener " \
+                    "have no effect."
+                print_debug(self._print_target, self.debug_level, 
+                    msg, DEBUG_WARNING)
+                raise RuntimeWarning(msg)
+            
+            self.handshake()
+            self.start_heartbeat()
 
 
     def stop(self)->None:
@@ -456,6 +518,9 @@ class MeowRunner:
         else:
             self._stop_listener_pipe[1].send(1)
             self._network_listener_worker.join()
+            
+            # self._stop_remote_listener_pipe[1].send(1)
+            # self._remote_network_listener_worker.join()
         print_debug(self._print_target, self.debug_level,
             "Network listener thread stopped", DEBUG_INFO)
 
@@ -573,8 +638,22 @@ class MeowRunner:
                     data = conn.recv(1024)
                     if not data:
                         break
-                    conn.sendall(data)
-                    print(f"LISTENING: {data.decode()}", flush=True)
+                    msg = data.decode()
+                    if "handshake" in msg:
+                        
+                        name = re.search(r"'name':\s*'([^']*)'", msg)
+                        self.remote_runner_name = name.group(1)
+                        print(f"Remote Runner Name: {self.remote_runner_name}")
+                        self.remote_alive = True
+                        print("remote alive:", self.remote_alive)
+                        conn.sendall("Handshake Maybe Done".encode())
+                    elif "heartbeat" in msg:
+                        print(f"Heartbeat from {self.remote_runner_name}")
+                        conn.sendall("Heartbeat Received".encode())
+                        
+                    else:
+                        conn.sendall(data)
+                        print(f"LISTENING: {data.decode()}", flush=True)
                 except Exception as e:
                     print_debug(self._print_target, self.debug_level,
                         f"Failed to send message: {e}", DEBUG_WARNING)
@@ -586,7 +665,38 @@ class MeowRunner:
         local_ip = socket.gethostbyname(socket.gethostname())
         print(f"DEBUGggg: Local IP: {local_ip}")
         return local_ip
+    
 
+    def handshake(self):
+        handshake_msg = {
+            "type": "handshake",
+            "name": self.name,
+            "ip": self.local_ip_addr
+        }
+        self.send_message(handshake_msg)
+
+
+    def start_heartbeat(self, sleep_interval:int=1):
+        def heartbeat_loop():
+            while self.remote_alive:
+                heartbeat_msg = {
+                    "type": "heartbeat",
+                    "name": self.name,
+                    "status": "alive"
+                }
+                print_debug(self._print_target, self.debug_level,
+                    "Sending heartbeat", DEBUG_INFO)
+                self.send_message(heartbeat_msg)
+                print("BEFORE SLEEP")
+                time.sleep(sleep_interval)
+                print("AFTER SLEEP")
+                
+        
+        thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        thread.start()
+        thread.join()
+        print_debug(self._print_target, self.debug_level,
+            "Heartbeat started", DEBUG_INFO)
 
     def setup_ssh_connection_to_remote(self, ssh_config_path:Any=os.path.expanduser("~/.ssh/config")):
         """Function to setup an SSH connection to a remote machine, and tell it to send debug msg's to given socket."""
@@ -618,16 +728,16 @@ class MeowRunner:
             "SSH connection established", DEBUG_INFO)
     
 
-        meow_base_path = "/workspaces/meow_base"
-        #meow_base_path = "/home/rlf574/meow_base"
+        # meow_base_path = "/workspaces/meow_base"
+        meow_base_path = "/home/rlf574/meow_base"
         local_ip_addr = self._get_local_ip()
-        stdin, stdout, stderr = client.exec_command(f'export HOST_IP={local_ip_addr} && cd {meow_base_path}/examples && source /app/venv/bin/activate && python3 skeleton_runner.py')
+        stdin, stdout, stderr = client.exec_command(f'export HOST_IP={local_ip_addr} && cd {meow_base_path}/examples && python3 skeleton_runner.py')
     
-        #print("Remote stdout:", stdout.read().decode())
-        #print("Remote stderr:", stderr.read().decode())
+        print("Remote stdout:", stdout.read().decode())
+        print("Remote stderr:", stderr.read().decode())
 
         # Bad temp fix... maybe
-        self.remote_alive = True
+        #self.remote_alive = True
 
         client.close()
 
@@ -708,11 +818,68 @@ class MeowRunner:
         pass
 
 
-    """ def check_remote_runner_alive(self):
-        ""Function to check if the remote runner is still alive""
-        if self.remote_alive:
-            return True
-        else:
-            # shutdown local runner
-            self.stop() """
+    def open_remote_handshake_socket_async(self, host="127.0.1.1", port=10002):
+        """Starts a thread to open a socket and wait for a 3-way handshake."""
+        def run_handshake():
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind((host, port))
+            server_socket.listen(1)
+
+            print_debug(self._print_target, self.debug_level,
+                f"Remote handshake socket listening on {host}:{port}", DEBUG_INFO)
+
+            conn, addr = server_socket.accept()
+            print_debug(self._print_target, self.debug_level,
+                f"Handshake attempt from {addr}", DEBUG_INFO)
+
+            data = conn.recv(1024).decode()
+            if data == "SYN":
+                print("SYN received")
+                conn.sendall("SYN-ACK".encode())
+                print("SYN-ACK sent")
+                ack = conn.recv(1024).decode()
+                if ack == "ACK":
+                    print("ACK received")
+                    print_debug(self._print_target, self.debug_level,
+                        "3-way handshake complete", DEBUG_INFO)
+
+            # conn.close()
+            # server_socket.close()
+
+        thread = threading.Thread(target=run_handshake)
+        thread.daemon = True
+        thread.start()
+        
+        
+    def open_local_handshake_socket_async(self, remote_ip="127.0.1.1", remote_port=10002):
+        def perform_handshake_with_remote():
+            """Connect to the remote handshake socket, exchange messages for the 3-way handshake."""
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect((remote_ip, remote_port))
+                    s.sendall("SYN".encode())
+                    response = s.recv(1024).decode()
+                    if response == "SYN-ACK":
+                        s.sendall("ACK".encode())
+                        print_debug(self._print_target, self.debug_level,
+                            "Local to Remote handshake complete", DEBUG_INFO)
+                    else:
+                        print_debug(self._print_target, self.debug_level,
+                            f"Unexpected handshake response: {response}", DEBUG_WARNING)
+            except Exception as e:
+                print_debug(self._print_target, self.debug_level,
+                    f"Handshake with remote failed: {e}", DEBUG_WARNING)
+            
+        thread = threading.Thread(target=perform_handshake_with_remote)
+        thread.daemon = True
+        thread.start()
+
+    # def check_remote_runner_alive(self):
+    #     ""Function to check if the remote runner is still alive""
+    #     if self.remote_alive:
+    #         return True
+    #     else:
+    #         # shutdown local runner
+    #         self.stop()
         

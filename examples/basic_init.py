@@ -95,7 +95,7 @@ local_runner = MeowRunner(
         pause_time=1
     ),
     logging = 10,
-    name="Local Runner", network = 1, ssh_config_alias="Container"
+    name="Local Runner", network = 1, ssh_config_alias="Own-System" # Docker-Nix
 )
 
 
@@ -110,6 +110,22 @@ local_runner = MeowRunner(
     hello_runner.stop() """
 
 
+# local_runner.start()
+# local_runner.check_remote_runner_alive()
+# local_runner.ip_addr = "172.20.28.89"
+# local_runner.debug_port = 10001
+# local_runner.send_message("Hello from local!")
+# time.sleep(5)
+host_ip = os.environ.get("HOST_IP")
+local_runner.ip_addr = "127.0.1.1"
+
 local_runner.start()
-#local_runner.check_remote_runner_alive()
+# time.sleep(2)  
+# local_runner.open_local_handshake_socket_async("127.0.1.1", 10002)
+# time.sleep(2)  
+
+local_runner.send_attached_conductors()
+
+time.sleep(5)
+local_runner.remote_alive = False
 local_runner.stop()
