@@ -1,0 +1,10 @@
+{
+    "available_runners": [
+      {
+        "runner_name": "remote_runner",
+        "filename": "skeleton_runner.py",
+        "fullpath": "/workspaces/meow_base/examples/"
+      }
+    ]
+  }
+  

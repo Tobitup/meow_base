@@ -65,7 +65,7 @@ class MeowRunner:
 
             # Added Network Options
             network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), debug_port:int=10001, hb_port:int=10005,
-            send_a_runner:str=None )->None:
+            runner_file_name:str=None )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
         or consume."""
@@ -79,7 +79,7 @@ class MeowRunner:
         self.role = role
        
         self.ssh_private_key_dir = ssh_private_key_dir
-        self.send_a_runner = send_a_runner
+        self.runner_file_name = runner_file_name
 
 
         # Debugging port for network mode
@@ -190,6 +190,8 @@ class MeowRunner:
 
         # Bool check to see if hb timeout was reached
         self._hb_timed_out = False
+
+        self.runner_file_path = None
 
 
 
@@ -826,6 +828,30 @@ class MeowRunner:
                             self.remote_alive = False
                             #self.network = 0
                             break
+                        
+                    elif msg_data.get("type") == "get_queue":
+                        if self.role == "remote":
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Job queue of Remote Runenr requested by: {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            # make the job queue save its job queue and then after send it back to the local runner
+                            job_queue = json.dumps(self.job_queue).encode()
+                            conn.sendall(job_queue)
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner job queue sent to {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            
+                    # elif msg_data.get("type") == "get_queue_all":
+                    #     if self.role == "remote":
+                    #         print_debug(self._print_target, self.debug_level,
+                    #                     f"Remote runner requested all job queues: {msg_data.get('requested by')}",
+                    #                     DEBUG_INFO)
+                    #         # make the job queue save its job queue and then after send it back to the local runner
+                    #         job_queue = json.dump(self.job_queue).encode()
+                    #         conn.sendall(job_queue)
+                    #         print_debug(self._print_target, self.debug_level,
+                    #                     f"Remote runner all job queues sent to {msg_data.get('requested by')}",
+                    #                     DEBUG_INFO)
 
                     else:
                         conn.sendall(data)
@@ -899,9 +925,7 @@ class MeowRunner:
             self._heartbeat_sender_worker.start()
             print_debug(self._print_target, self.debug_level,
                 f"{self.role} Heartbeat: Sender started", DEBUG_INFO)
-
-
-        
+   
 
     def send_heartbeat(self, hb_interval:int, hb_timeout:int):
         """Send heartbeats over a constant connection."""
@@ -978,9 +1002,7 @@ class MeowRunner:
                     print_debug(self._print_target, self.debug_level,
                                 "Heartbeat socket closed", DEBUG_INFO)
                     hb_socket = None
-           
-
-
+    
     
     def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=1):
         """
@@ -1014,11 +1036,11 @@ class MeowRunner:
                 time.sleep(hb_check_interval)
 
 
-
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
         """Function to generate a JSON config file for network mode"""
         config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        # config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
 
@@ -1032,9 +1054,8 @@ class MeowRunner:
             json.dump(config, f)
         print_debug(self._print_target, self.debug_level,
             f"Network config file generated at: {conf_file}", DEBUG_INFO)
-        
-        return conf_file
 
+        return conf_file
 
 
     def transfer_network_config(self, client: paramiko.SSHClient, local_config_file: str):
@@ -1043,6 +1064,7 @@ class MeowRunner:
             # Again hardcoded directory, maybe change later
             sftp = client.open_sftp()
             remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
+            # remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
 
             # Check if the directory exists, if not create it
             try:
@@ -1061,39 +1083,43 @@ class MeowRunner:
                     f"Failed to send network config file: {e}", DEBUG_WARNING)
 
 
+    def load_runner_filepath(self, runner_manifest_filepath:str):
+        """Function to load the runner file path from the manifest file"""
+        if not os.path.exists(runner_manifest_filepath):
+            raise FileNotFoundError(f"Could not find manifest file at {runner_manifest_filepath}")
 
-    def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_json:Any=os.path.expanduser("~/Desktop/git/meow_base/examples/runners/.runner_confs.json")):
-        """Function to transfer the runner to the remote machine"""
-
-        if not os.path.exists(runner_json):
-            raise FileNotFoundError(f"Could not find manifest file at {runner_json}")
-
-        with open (runner_json, "r") as f:
+        with open(runner_manifest_filepath, "r") as f:
             data = json.load(f)
 
         for available_runners in data.get("available_runners", []):
-            if available_runners.get("filename") == self.send_a_runner:
-                runner_python_file = available_runners.get("fullpath")
-                break
+            if available_runners.get("filename") == self.runner_file_name:
+                self.runner_file_path = available_runners.get("fullpath")
+                return
         else:
-            raise ValueError(f"Runner {self.send_a_runner} not found in JSON file")
-                
+            raise ValueError(f"Runner {self.runner_file_name} not found in JSON file")
+
+
+    def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_manifest_filepath:Any=os.path.expanduser("/workspaces/meow_base/examples/runners/.runner_confs.json")):
+        """Function to transfer the runner to the remote machine"""
+
+        self.load_runner_filepath(runner_manifest_filepath)
 
         try:
             sftp = client.open_sftp()
 
             # Check if the directory exists, if not error out
             try:
-                sftp.stat(runner_python_file)
+                sftp.stat(runner_manifest_filepath)
             except IOError:
                 print_debug(self._print_target, self.debug_level,
-                        f"Directory {runner_python_file} does not exist, please confirm it exists", DEBUG_INFO)
+                        f"Directory {runner_manifest_filepath} does not exist, please confirm it exists", DEBUG_INFO)
                 return
 
-            #runner_on_remote = f"{runner_python_file}/transfered_runner.py"
-            sftp.put(runner_python_file)
+            runner_on_local = f"{self.runner_file_path}/{self.runner_file_name}"
+            runner_on_remote = f"{self.runner_file_path}/{self.runner_file_name}"
+            sftp.put(runner_on_local, runner_on_remote)
             print_debug(self._print_target, self.debug_level,
-                    f"Transferred runner to remote: {runner_python_file}", DEBUG_INFO)
+                    f"Transferred runner to remote: {self.runner_file_path}", DEBUG_INFO)
             sftp.close()
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
@@ -1142,25 +1168,30 @@ class MeowRunner:
 
 
         # Check for a runner file to transfer
-        if not self.send_a_runner == None:
+        if not self.runner_file_name == None:
             try:
-                self.transfer_local_located_runner_to_remote(client, self.send_a_runner)
+                self.transfer_local_located_runner_to_remote(client)
             except Exception as e:
                 print_debug(self._print_target, self.debug_level,
                     f"Failed to transfer runner file: {e}", DEBUG_WARNING)
                 return
 
 
-        meow_base_path = "/workspaces/meow_base"
-        # meow_base_path = "/home/rlf574/meow_base"
+        
+        
 
-        if self.send_a_runner == None:
+        if self.runner_file_name == None:
+            meow_base_path = "/workspaces/meow_base/examples/"
+            # meow_base_path = "/home/rlf574/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
-            requested_runner = self.send_a_runner
+            meow_base_path = self.runner_file_path
+            print(self.runner_file_path)
+            requested_runner = self.runner_file_name
+            print(requested_runner)
 
         #stdin, stdout, stderr = 
-        client.exec_command(f'cd {meow_base_path}/examples && source /app/venv/bin/activate && nohup python3 {requested_runner} > log.txt 2>&1 &')
+        client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log.txt 2>&1 &')
     
         # Redirect stdout and stderr of Remote to Local terminal ( Not needed when logging to file )
         #print("Remote stdout:", stdout.read().decode())
@@ -1174,6 +1205,8 @@ class MeowRunner:
 
         # These dirs are currently hard coded. Maybe a good idea to make it more robust and constimizable later
         config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        # config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        
         # Naming of the file is also hard coded atm, another idea could be to timestamp them and look for the latest one, (but maybe out of scope if we asume only ever one Remote Runner)
         config_file = os.path.join(config_dir, "transfered_network_config.json")
         
@@ -1276,3 +1309,77 @@ class MeowRunner:
     def send_all_attached_components(self):
         """Function to send all attached components to the remote machine - (monitors, conductors, handlers)"""
         pass
+    
+    def get_queue(self, target=None):
+        """Function to retrieve the job queues from the local and/or remote machines based on the input of the fuction"""
+        if target == None:
+            msg = {
+                "type": "get_queue",
+                "requested by": self.name,
+                "timestamp": time.time()
+            }
+            if self.remote_runner_ip == None: # HACKED SOLUTION >_<
+                print_debug(self._print_target, self.debug_level,
+                    "Remote runner IP not set, trying again in 2 seconds", DEBUG_WARNING)
+                time.sleep(2)
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect((self.remote_runner_ip, 10002))
+                    s.sendall(json.dumps(msg).encode())
+                    data = s.recv(1024)
+                    if not data:
+                        print_debug(self._print_target, self.debug_level,
+                            "No data received from remote runner", DEBUG_WARNING)
+                        return
+                    job_q = json.loads(data.decode())
+                    all_job_q = {
+                        "local": self.job_queue,
+                        "remote": job_q
+                    }
+                    print_debug(self._print_target, self.debug_level,
+                        f"Remote job queue: {all_job_q}", DEBUG_INFO)
+
+                    s.close()
+
+            except Exception as e:
+                print_debug(self._print_target, self.debug_level,
+                    f"Failed to send job queue: {e}", DEBUG_WARNING)
+                return
+        
+        elif target == "local":
+            # make the json file and send it to the remote runner
+            job_q = self.job_queue
+            print_debug(self._print_target, self.debug_level,
+                f"Local job queue: {job_q}", DEBUG_INFO)
+            
+        elif target == "remote":
+            # print out the remote job queue
+            msg = {
+                "type": "get_queue",
+                "requested by": self.name,
+                "timestamp": time.time()
+            }
+            # print(msg)
+            if self.remote_runner_ip == None:
+                print_debug(self._print_target, self.debug_level,
+                    "Remote runner IP not set, trying again in 2 seconds", DEBUG_WARNING)
+                time.sleep(2)
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect((self.remote_runner_ip, 10002))
+                    s.sendall(json.dumps(msg).encode())
+                    data = s.recv(1024)
+                    if not data:
+                        print_debug(self._print_target, self.debug_level,
+                            "No data received from remote runner", DEBUG_WARNING)
+                        return
+                    job_q = json.loads(data.decode())
+                    print_debug(self._print_target, self.debug_level,
+                        f"Remote job queue: {job_q}", DEBUG_INFO)
+
+                    s.close()
+
+            except Exception as e:
+                print_debug(self._print_target, self.debug_level,
+                    f"Failed to send job queue: {e}", DEBUG_WARNING)
+                return
