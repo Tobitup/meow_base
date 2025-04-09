@@ -64,7 +64,8 @@ class MeowRunner:
             name:str="Unnamed Runner", role:str="local",
 
             # Added Network Options
-            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), debug_port:int=10001, hb_port:int=10005 )->None:
+            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), debug_port:int=10001, hb_port:int=10005,
+            send_a_runner:str=None )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
         or consume."""
@@ -78,6 +79,7 @@ class MeowRunner:
         self.role = role
        
         self.ssh_private_key_dir = ssh_private_key_dir
+        self.send_a_runner = send_a_runner
 
 
         # Debugging port for network mode
@@ -146,9 +148,11 @@ class MeowRunner:
         # Create new channel for sending stop messages to listener threads
         self._stop_listener_pipe = Pipe()
         self._network_listener_worker = None
+        self._heartbeat_listener_worker = None
         
         self._stop_remote_listener_pipe = Pipe()
         self._remote_network_listener_worker = None
+        self._heartbeat_sender_worker = None
 
         # Setup debugging
         self._print_target, self.debug_level = setup_debugging(print, logging)
@@ -179,18 +183,13 @@ class MeowRunner:
         self.last_heartbeat_from_remote = time.time()
         self.last_heartbeat_from_local = time.time()
         self.hb_port = hb_port
+
+        # Threads active on Remote side
         self.hb_sender_thread_active = False
+        self.hb_timeout_thead = None
 
-
-        """ if network == 1:
-            print_debug(self._print_target, self.debug_level,
-                "Network mode enabled", DEBUG_INFO)
-            print_debug(self._print_target, self.debug_level,
-                f"Config Alias Name: {self.ssh_config_alias}", DEBUG_INFO)
-            print_debug(self._print_target, self.debug_level,
-                f"Port: {self.debug_port}", DEBUG_INFO)
-            print_debug(self._print_target, self.debug_level,
-                f"SSH Key Directory: {self.ssh_private_key_dir}\n", DEBUG_INFO) """
+        # Bool check to see if hb timeout was reached
+        self._hb_timed_out = False
 
 
 
@@ -410,7 +409,8 @@ class MeowRunner:
                         except Exception as e:
                             print_debug(self._print_target, self.debug_level,
                                         f"Error in CONSISTANT heartbeat listener: {e}", DEBUG_WARNING)
-                            break
+                            return
+                    return
     
     def start(self)->None:
         """Function to start the runner by starting all of the constituent 
@@ -481,16 +481,16 @@ class MeowRunner:
 
         if self.network == 1 and self.role == "local":
             print_debug(self._print_target, self.debug_level,
-                "Setting up network connection...", DEBUG_INFO)
+                "Setting up local network connection...", DEBUG_INFO)
             if self._network_listener_worker is None:
-                # Setting up listening thread
+                # Setting up listening thread on Local system
                 self._network_listener_worker = threading.Thread(
                     target=self.setup_listener_thread,
                     args=[])
                 self._network_listener_worker.daemon = True
                 self._network_listener_worker.start()
                 print_debug(self._print_target, self.debug_level, 
-                    "Starting MeowRunner network listener...", DEBUG_INFO)
+                    "Starting Local MeowRunner network listener...", DEBUG_INFO)
             else:
                 msg = "Repeated calls to start MeowRunner network listener " \
                     "have no effect."
@@ -525,7 +525,7 @@ class MeowRunner:
 
             self.load_transfered_network_config()
             self.send_handshake_to_local()
-            self.heartbeat_thread_dealer(hb_interval=5, hb_timeout=15)
+            self.heartbeat_thread_dealer()
 
 
     def stop(self)->None:
@@ -533,7 +533,7 @@ class MeowRunner:
         monitors, handlers and conductors, along with managing interaction 
         threads."""
 
-        if self.role == "local" and self.network == 1 and self.remote_runner_ip:
+        if self.role == "local" and self.network == 1 and self.remote_runner_ip and not self._hb_timed_out:
             self._send_stop_cmd_to_remote()
             while self.remote_alive:
                 print_debug(self._print_target, self.debug_level,
@@ -562,7 +562,7 @@ class MeowRunner:
         else:
             self._stop_mon_han_pipe[1].send(1)
             self._mon_han_worker.join()
-        print_debug(self._print_target, self.debug_level, 
+        print_debug(self._print_target, self.debug_level,
             "Event handler thread stopped", DEBUG_INFO)
 
         # If we've started the handler/conductor interaction thread, then stop 
@@ -577,13 +577,8 @@ class MeowRunner:
             self._han_con_worker.join()
         print_debug(self._print_target, self.debug_level, 
             "Job conductor thread stopped", DEBUG_INFO)
-        
 
-        if self.role == "local":
-            pass
-
-
-        if self.role == "remote" and self.network == 1 and self.local_runner_ip:
+        if self.role == "remote" and self.network == 1 and self.local_runner_ip and not self._hb_timed_out:
             self._confirm_remote_runner_shutdown()
             self.network = 0
             
@@ -592,7 +587,6 @@ class MeowRunner:
 
         
         # Closes network threads.
-        # Maybe not needed as threads close their connections on their own.
         if self._network_listener_worker is None and self.role == "local":
             msg = "Cannot stop remote network listener thread that is not started."
             print_debug(self._print_target, self.debug_level,
@@ -602,6 +596,7 @@ class MeowRunner:
             if self.role == "local":
                 self._stop_listener_pipe[1].send(1)
                 self._network_listener_worker.join()
+                self._heartbeat_listener_worker.join()
                 print_debug(self._print_target, self.debug_level,
                     "Local Network listener thread stopped", DEBUG_INFO)
         
@@ -614,18 +609,19 @@ class MeowRunner:
         else:
             if self.role == "remote":
                 self._stop_remote_listener_pipe[1].send(1)
-                print(f"MEEEEEE ISSSSS {self.role}")
                 self._remote_network_listener_worker.join()
+                self._heartbeat_sender_worker.join()
                 print_debug(self._print_target, self.debug_level,
                     "Remote Network listener thread stopped", DEBUG_INFO)
         
+        # Debug used to see active threads running
         if self.role == "local":
             active_threads = threading.enumerate()
             print_debug(self._print_target, self.debug_level, f"Active threads: {[t.name for t in active_threads]}", DEBUG_INFO)
-
         if self.role == "remote":
             active_threads = threading.enumerate()
             print_debug(self._print_target, self.debug_level, f"Active threads: {[t.name for t in active_threads]}", DEBUG_INFO)
+        
 
         
     # Used to instruct remote runner to also call .stop() if local runner called .stop()
@@ -644,14 +640,17 @@ class MeowRunner:
         }
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((self.remote_runner_ip, 10002))
+                s.connect((self.remote_runner_ip, 10002)) # Port used when testing on same machine, else should be 10001
                 s.sendall(json.dumps(stop_msg).encode())
                 print(f"DEBUG: Sent stop message to remote runner: {stop_msg}")
                 print_debug(self._print_target, self.debug_level,
                     "Stop message sent to remote machine", DEBUG_INFO)
+                s.close()
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send stop command to remote: {e}", DEBUG_WARNING)
+            self.remote_alive = False
+            return
 
 
 
@@ -669,13 +668,15 @@ class MeowRunner:
         }
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((self.local_runner_ip, 10001))
+                s.connect((self.local_runner_ip, self.debug_port))
                 s.sendall(json.dumps(confirm_shtdwn_msg).encode())
                 print_debug(self._print_target, self.debug_level,
-                    "Ack of shutdown sent to local machine", DEBUG_INFO)
+                    "Ack of shutdown sent to Local machine", DEBUG_INFO)
+                s.close()
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send ack of shutdown command to local: {e}", DEBUG_WARNING)
+            return
         
 
     def get_monitor_by_name(self, queried_name:str)->BaseMonitor:
@@ -783,7 +784,7 @@ class MeowRunner:
             make_dir(job_output_dir)
 
     
-    # Used in network listner
+    # Used in network listener
     def handle_listener_thread(self, conn, addr):
         with conn:
             #print(f'Connected by {addr}')
@@ -823,7 +824,7 @@ class MeowRunner:
                             print_debug(self._print_target, self.debug_level,
                                     f"Local Runner shutdown acknowledged by {msg_data.get('runner stopped')}",DEBUG_INFO)
                             self.remote_alive = False
-                            self.network = 0
+                            #self.network = 0
                             break
 
                     else:
@@ -862,48 +863,66 @@ class MeowRunner:
                 """ data = s.recv(1024)
                 print_debug(self._print_target, self.debug_level,
                     f"Received: {data.decode()}", DEBUG_INFO) """
-                #s.shutdown(socket.SHUT_RDWR)
+                s.close()
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send handshake: {e}", DEBUG_WARNING)
+            return
 
 
 
-    def heartbeat_thread_dealer(self, hb_interval:int=5, hb_timeout:int=30):
+    def heartbeat_thread_dealer(self, hb_interval:int=5, hb_timeout:int=15):
         
         if self.network != 1:
             print_debug(self._print_target, self.debug_level,
                 "Network mode not enabled - Hearbeat thread can't be started", DEBUG_WARNING)
             return
 
-        if self.role == "local" and self.network == 1:
-            threading.Thread(target=self.setup_heartbeat_listener, daemon=True).start()
+        if self.role == "local" and self.network == 1 and self._heartbeat_listener_worker == None:
+            self._heartbeat_listener_worker= threading.Thread(target=self.setup_heartbeat_listener, daemon=True)
+            self._heartbeat_listener_worker.start()
             print_debug(self._print_target, self.debug_level,
-                f"{self.role} heartbeat] Listener started", DEBUG_INFO)
+                f"{self.role} Heartbeat: Listener started", DEBUG_INFO)
 
-        if self.role == "remote" and self.network == 1 and self.hb_sender_thread_active == False:
-            self.hb_sender_thread_active = True
-            threading.Thread(target=self.send_heartbeat, args=(hb_interval, hb_timeout), daemon=True).start()
+        if self.role == "remote" and self.network == 1 and self.hb_sender_thread_active == False and self._heartbeat_sender_worker == None and self.hb_timeout_thead == None:
+
+            # Start Heartbeat Timeout Thread
+            self.hb_timeout_thead = threading.Thread(target=self.heartbeat_timeout_check, args=(hb_timeout,), daemon=True)
+            self.hb_timeout_thead.start()
             print_debug(self._print_target, self.debug_level,
-                f"{self.role} heartbeat] Sender started", DEBUG_INFO)
+                f"{self.role} Heartbeat: Timeout thread started", DEBUG_INFO)
+            
+            
+            # Start Heartbeat Sender Threads
+            self.hb_sender_thread_active = True
+            self._heartbeat_sender_worker= threading.Thread(target=self.send_heartbeat, args=(hb_interval, hb_timeout), daemon=True)
+            self._heartbeat_sender_worker.start()
+            print_debug(self._print_target, self.debug_level,
+                f"{self.role} Heartbeat: Sender started", DEBUG_INFO)
+
 
         
 
     def send_heartbeat(self, hb_interval:int, hb_timeout:int):
         """Send heartbeats over a constant connection."""
+        reconect_attempts = 0
+        hb_socket = None
+
+        # Wait for the local runner IP to be set
         while self.network == 1:
-            time_elapsed = time.time() - self.last_heartbeat_from_remote
-            if not self.local_runner_ip:
+            if not self.local_runner_ip and reconect_attempts < 5:
                 print_debug(self._print_target, self.debug_level,
                             "[REMOTE RUNNER HEARTBEAT FUNC] Local runner IP not set yet.", DEBUG_WARNING)
                 time.sleep(hb_interval)
+                reconect_attempts += 1
                 continue
-
-            if time_elapsed > hb_timeout:
+            # If the local runner IP is not set after 5 attempts, shut down Remote
+            elif reconect_attempts >= 5:
                 print_debug(self._print_target, self.debug_level,
-                            f"Heartbeat not received for: {time_elapsed} seconds Assuming dead", DEBUG_WARNING)
-                self.network = 0
-                break
+                            "[REMOTE RUNNER HEARTBEAT FUNC] Local runner IP not set, shutting down.", DEBUG_WARNING)
+                self.stop()
+                return
+            
             try:
                 hb_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 hb_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -911,29 +930,33 @@ class MeowRunner:
                 hb_socket.connect((self.local_runner_ip, self.hb_port))
                 """ print_debug(self._print_target, self.debug_level,
                             "Persistent heartbeat sender connected", DEBUG_INFO) """
-            except Exception as e:
-                print_debug(self._print_target, self.debug_level,
-                            f"Failed to establish persistent heartbeat connection: {e}", DEBUG_WARNING)
-                time.sleep(hb_interval)
-                continue
 
-            while self.network == 1:
-                heartbeat_msg = {
-                    "type": "heartbeat",
-                    "role": self.role,
-                    "name": self.name,
-                    "timestamp": time.time()
-                }
-                try:
+                while self.network == 1:
+                    heartbeat_msg = {
+                        "type": "heartbeat",
+                        "role": self.role,
+                        "name": self.name,
+                        "timestamp": time.time()
+                    }
+                    # Send heartbeat message
                     hb_socket.sendall(json.dumps(heartbeat_msg).encode())
                     
+                    try:
                     # wait for ack
-                    data = hb_socket.recv(1024)
+                        data = hb_socket.recv(1024)
+                    except socket.timeout:
+                        print_debug(self._print_target, self.debug_level,
+                                    "Heartbeat ack timed out", DEBUG_WARNING)
+                        hb_socket.close()
+                        break
+
                     if not data:
                         print_debug(self._print_target, self.debug_level,
                                     "Heartbeat connection failed or no data recieved", DEBUG_WARNING)
                         hb_socket.close()
                         break
+
+                    # Data available, decode and check for ack from Local
                     msg = json.loads(data.decode())
                     if msg.get("type") == "hb_ack":
                         print_debug(self._print_target, self.debug_level,
@@ -941,34 +964,55 @@ class MeowRunner:
                         self.last_heartbeat_from_local = msg.get("timestamp", time.time())
                     else:
                         print_debug(self._print_target, self.debug_level,
-                                    "Unexpected message received", DEBUG_WARNING)
+                                    "Message recieved was not Heartbeat ack", DEBUG_WARNING)
+                    time.sleep(hb_interval)
 
-                    # print_debug(self._print_target, self.debug_level,
-                    #             "Heartbeat sent over CONSTANT connection", DEBUG_INFO)
-                except Exception as e:
-                    print_debug(self._print_target, self.debug_level,
-                                f"Error sending heartbeat; closing constant connection: {e}", DEBUG_WARNING)
+            except Exception as e:
+                print_debug(self._print_target, self.debug_level,
+                            f"Error in sending or maintaining heartbeat; closing constant connection: {e}", DEBUG_WARNING)
+
+            
+            finally:
+                if hb_socket:
                     hb_socket.close()
-                    break 
-                time.sleep(hb_interval)
-            try:
-                hb_socket.close()
-            except Exception:
-                break
+                    print_debug(self._print_target, self.debug_level,
+                                "Heartbeat socket closed", DEBUG_INFO)
+                    hb_socket = None
+           
 
 
-    # Called by the Local Runner to listen for incoming heartbeats from the Remote Runner
-    # def heartbeat_listener(self, hb_timeout:int, hb_interval:int):
-    #     """Function to listen for incoming heartbeats from the remote runner"""
-    #     print("DO I START FIRST??")
-    #     while self.network:
-    #         time_since_last_hb = time.time() - self.last_heartbeat
-    #         if time_since_last_hb > hb_timeout:
-    #             print_debug(self._print_target, self.debug_level,
-    #                 f"LAST HEARTBEAT GOTTEN AT {self.last_heartbeat}", DEBUG_WARNING)
-    #             print_debug(self._print_target, self.debug_level,
-    #                 f"Heartbeat not recived for: {time_since_last_hb} seconds", DEBUG_WARNING)
-    #             time.sleep(hb_interval)
+    
+    def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=1):
+        """
+            Periodically checks if 'hb_timeout' seconds have passed since
+            the last heartbeat from the local runner. If yes, assume local is dead
+            and shut down this runner.
+        """
+        
+        while self.network == 1:
+            if self.role == "remote":
+                # Check time since last heartbeat from Local
+                time_elapesd = time.time() - self.last_heartbeat_from_local
+                if time_elapesd > hb_timeout:
+                    print_debug(self._print_target, self.debug_level,
+                                f"Heartbeat timeout: {time_elapesd} seconds since last heartbeat from local runner; Assuming Local dead", DEBUG_WARNING)
+                    self._hb_timed_out = True
+                    self.network = 0
+                    self.stop()
+                    return
+                time.sleep(hb_check_interval)
+            elif self.role == "local":
+                # Check time since last heartbeat from Local
+                time_elapesd = time.time() - self.last_heartbeat_from_remote
+                if time_elapesd > hb_timeout:
+                    print_debug(self._print_target, self.debug_level,
+                                f"Heartbeat timeout: {time_elapesd} seconds since last heartbeat from remote runner; Assuming Remote dead", DEBUG_WARNING)
+                    self._hb_timed_out = True
+                    self.network = 0
+                    self.stop()
+                    return
+                time.sleep(hb_check_interval)
+
 
 
     # Function to auto generate the network config file, holding local IP and Name for now.
@@ -1018,6 +1062,44 @@ class MeowRunner:
 
 
 
+    def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_json:Any=os.path.expanduser("~/Desktop/git/meow_base/examples/runners/.runner_confs.json")):
+        """Function to transfer the runner to the remote machine"""
+
+        if not os.path.exists(runner_json):
+            raise FileNotFoundError(f"Could not find manifest file at {runner_json}")
+
+        with open (runner_json, "r") as f:
+            data = json.load(f)
+
+        for available_runners in data.get("available_runners", []):
+            if available_runners.get("filename") == self.send_a_runner:
+                runner_python_file = available_runners.get("fullpath")
+                break
+        else:
+            raise ValueError(f"Runner {self.send_a_runner} not found in JSON file")
+                
+
+        try:
+            sftp = client.open_sftp()
+
+            # Check if the directory exists, if not error out
+            try:
+                sftp.stat(runner_python_file)
+            except IOError:
+                print_debug(self._print_target, self.debug_level,
+                        f"Directory {runner_python_file} does not exist, please confirm it exists", DEBUG_INFO)
+                return
+
+            #runner_on_remote = f"{runner_python_file}/transfered_runner.py"
+            sftp.put(runner_python_file)
+            print_debug(self._print_target, self.debug_level,
+                    f"Transferred runner to remote: {runner_python_file}", DEBUG_INFO)
+            sftp.close()
+        except Exception as e:
+            print_debug(self._print_target, self.debug_level,
+                    f"Failed to send runner file: {e}", DEBUG_WARNING)
+            return
+
 
     def setup_ssh_connection_to_remote(self, ssh_config_path:Any=os.path.expanduser("~/.ssh/config")):
         """Function to setup an SSH connection to a remote machine, and tell it to send debug msg's to given socket."""
@@ -1059,12 +1141,28 @@ class MeowRunner:
             return
 
 
+        # Check for a runner file to transfer
+        if not self.send_a_runner == None:
+            try:
+                self.transfer_local_located_runner_to_remote(client, self.send_a_runner)
+            except Exception as e:
+                print_debug(self._print_target, self.debug_level,
+                    f"Failed to transfer runner file: {e}", DEBUG_WARNING)
+                return
+
 
         meow_base_path = "/workspaces/meow_base"
         # meow_base_path = "/home/rlf574/meow_base"
+
+        if self.send_a_runner == None:
+            requested_runner = "skeleton_runner.py"
+        else:
+            requested_runner = self.send_a_runner
+
         #stdin, stdout, stderr = 
-        client.exec_command(f'cd {meow_base_path}/examples && source /app/venv/bin/activate && nohup python3 skeleton_runner.py > log.txt 2>&1 &')
+        client.exec_command(f'cd {meow_base_path}/examples && source /app/venv/bin/activate && nohup python3 {requested_runner} > log.txt 2>&1 &')
     
+        # Redirect stdout and stderr of Remote to Local terminal ( Not needed when logging to file )
         #print("Remote stdout:", stdout.read().decode())
         #print("Remote stderr:", stderr.read().decode())
 

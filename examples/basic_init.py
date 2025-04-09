@@ -95,7 +95,7 @@ local_runner = MeowRunner(
         pause_time=1
     ),
     logging = 10,
-    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container" # Docker-Nix
+    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container", send_a_runner="skeleton_runner.py",
 )
 
 
@@ -117,5 +117,4 @@ local_runner.start()
 #local_runner.send_attached_conductors()
 
 time.sleep(10)
-#local_runner.remote_alive = False
 local_runner.stop()
