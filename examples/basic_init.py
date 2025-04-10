@@ -117,7 +117,10 @@ local_runner.start()
 #local_runner.send_attached_conductors()
 
 time.sleep(2)
-local_runner.get_queue()
+#local_runner.get_queue()
+#local_runner.get_attached_conductors()
+#local_runner.get_attached_handlers()
+#local_runner.get_attached_monitors()
 
 time.sleep(10)
 

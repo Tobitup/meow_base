@@ -148,10 +148,13 @@ class MeowRunner:
         # Create new channel for sending stop messages to listener threads
         self._stop_listener_pipe = Pipe()
         self._network_listener_worker = None
+
+        self._stop_heartbeat_listener_pipe = Pipe()
         self._heartbeat_listener_worker = None
         
         self._stop_remote_listener_pipe = Pipe()
         self._remote_network_listener_worker = None
+
         self._heartbeat_sender_worker = None
 
         # Setup debugging
@@ -182,6 +185,8 @@ class MeowRunner:
         # Used for logging time of last heartbeat recived from Remote Runner, along with standard hb_port (Standard 10005)
         self.last_heartbeat_from_remote = time.time()
         self.last_heartbeat_from_local = time.time()
+
+        self.last_network_communication = time.time()
         self.hb_port = hb_port
 
         # Threads active on Remote side
@@ -192,7 +197,6 @@ class MeowRunner:
         self._hb_timed_out = False
 
         self.runner_file_path = None
-
 
 
     def run_monitor_handler_interaction(self)->None:
@@ -374,45 +378,61 @@ class MeowRunner:
                         "Remote listener thread started", DEBUG_INFO)
 
 
-    # Seperate listening thread to monitor heartbeats sent to hb_port(as standard, port is set to 10005)
-    def setup_heartbeat_listener(self):
+    def _setup_heartbeat_listener(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.local_ip_addr, self.hb_port))
             s.listen()
             print_debug(self._print_target, self.debug_level,
-                        "Persistent Heartbeat listener thread listening...", DEBUG_INFO)
+                        "Heartbeat listener thread listening...", DEBUG_INFO)
 
-            while self.network == 1:
-                conn, addr = s.accept()
-                print_debug(self._print_target, self.debug_level,
-                            f"CONSISTANT Heartbeat connection accepted from {addr}", DEBUG_INFO)
-                with conn:
-                    while self.network == 1:
-                        try:
-                            data = conn.recv(1024)
-                            if not data:
-                                print_debug(self._print_target, self.debug_level,
-                                            "CONSISTANT heartbeat connection closed by remote", DEBUG_WARNING)
-                                break
-                            heartbeat = json.loads(data.decode())
-                            self.last_heartbeat_from_remote = heartbeat.get("timestamp", time.time())
-                            print_debug(self._print_target, self.debug_level,
-                                        f"Received heartbeat from {heartbeat.get('name')}", DEBUG_INFO)
-                            # When heartbeat is recieved, prepare and send an ack back, so remote knows local is recieving heartbeats.
-                            ack_response = {
-                                "type": "hb_ack",
-                                "role": self.role,
-                                "name": self.name,
-                                "remote_timestamp": self.last_heartbeat_from_remote,
-                                "timestamp": time.time()
-                            }
-                            conn.sendall(json.dumps(ack_response).encode())
-                        except Exception as e:
-                            print_debug(self._print_target, self.debug_level,
-                                        f"Error in CONSISTANT heartbeat listener: {e}", DEBUG_WARNING)
-                            return
+            all_inputs = [s, self._stop_heartbeat_listener_pipe[0]]
+            while True:
+                ready, _, _ = select.select(all_inputs, [], [])
+                if self._stop_heartbeat_listener_pipe[0] in ready:
+                    print_debug(self._print_target, self.debug_level,
+                        "HB listener thread stopped", DEBUG_INFO)
                     return
+                if s in ready:
+                    conn, addr = s.accept()
+                    #print_debug(self._print_target, self.debug_level,
+                    #    f"Accepted HB connection from {addr}", DEBUG_INFO)
+                    listener_thread = threading.Thread(
+                        target=self.heartbeat_listener,
+                        args=(conn, addr))
+                    listener_thread.daemon = True
+                    listener_thread.start()
+
+
+
+    # Seperate listening thread to monitor heartbeats sent to hb_port(as standard, port is set to 10005)
+    def heartbeat_listener(self, conn, addr):
+        with conn:
+            while self.network == 1:
+                try:
+                    data = conn.recv(1024)
+                    if not data:
+                        #print_debug(self._print_target, self.debug_level,
+                        #            "HB connection closed by remote", DEBUG_WARNING)
+                        break
+                    heartbeat = json.loads(data.decode())
+                    self.last_heartbeat_from_remote = heartbeat.get("timestamp", time.time())
+                    print_debug(self._print_target, self.debug_level,
+                                f"Received heartbeat from {heartbeat.get('name')}", DEBUG_INFO)
+                    # When heartbeat is recieved, prepare and send an ack back, so remote knows local is recieving heartbeats.
+                    ack_response = {
+                        "type": "hb_ack",
+                        "role": self.role,
+                        "name": self.name,
+                        "remote_timestamp": self.last_heartbeat_from_remote,
+                        "timestamp": time.time()
+                    }
+                    conn.sendall(json.dumps(ack_response).encode())
+                    self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                except Exception as e:
+                    print_debug(self._print_target, self.debug_level,
+                                f"Error in CONSISTANT heartbeat listener: {e}", DEBUG_WARNING)
+                    break
     
     def start(self)->None:
         """Function to start the runner by starting all of the constituent 
@@ -583,10 +603,6 @@ class MeowRunner:
         if self.role == "remote" and self.network == 1 and self.local_runner_ip and not self._hb_timed_out:
             self._confirm_remote_runner_shutdown()
             self.network = 0
-            
-
-            
-
         
         # Closes network threads.
         if self._network_listener_worker is None and self.role == "local":
@@ -598,6 +614,8 @@ class MeowRunner:
             if self.role == "local":
                 self._stop_listener_pipe[1].send(1)
                 self._network_listener_worker.join()
+                
+                self._stop_heartbeat_listener_pipe[1].send(1)
                 self._heartbeat_listener_worker.join()
                 print_debug(self._print_target, self.debug_level,
                     "Local Network listener thread stopped", DEBUG_INFO)
@@ -615,7 +633,7 @@ class MeowRunner:
                 self._heartbeat_sender_worker.join()
                 print_debug(self._print_target, self.debug_level,
                     "Remote Network listener thread stopped", DEBUG_INFO)
-        
+    
         # Debug used to see active threads running
         if self.role == "local":
             active_threads = threading.enumerate()
@@ -644,6 +662,7 @@ class MeowRunner:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.remote_runner_ip, 10002)) # Port used when testing on same machine, else should be 10001
                 s.sendall(json.dumps(stop_msg).encode())
+                self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 print(f"DEBUG: Sent stop message to remote runner: {stop_msg}")
                 print_debug(self._print_target, self.debug_level,
                     "Stop message sent to remote machine", DEBUG_INFO)
@@ -672,6 +691,7 @@ class MeowRunner:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.local_runner_ip, self.debug_port))
                 s.sendall(json.dumps(confirm_shtdwn_msg).encode())
+                self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 print_debug(self._print_target, self.debug_level,
                     "Ack of shutdown sent to Local machine", DEBUG_INFO)
                 s.close()
@@ -820,7 +840,6 @@ class MeowRunner:
                             self.stop()
                             break
 
-
                     elif msg_data.get("type") == "runner_shutdown_ack":
                         if self.role == "local":
                             print_debug(self._print_target, self.debug_level,
@@ -837,24 +856,56 @@ class MeowRunner:
                             # make the job queue save its job queue and then after send it back to the local runner
                             job_queue = json.dumps(self.job_queue).encode()
                             conn.sendall(job_queue)
+                            self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                             print_debug(self._print_target, self.debug_level,
                                         f"Remote runner job queue sent to {msg_data.get('requested by')}",
                                         DEBUG_INFO)
                             
-                    # elif msg_data.get("type") == "get_queue_all":
-                    #     if self.role == "remote":
-                    #         print_debug(self._print_target, self.debug_level,
-                    #                     f"Remote runner requested all job queues: {msg_data.get('requested by')}",
-                    #                     DEBUG_INFO)
-                    #         # make the job queue save its job queue and then after send it back to the local runner
-                    #         job_queue = json.dump(self.job_queue).encode()
-                    #         conn.sendall(job_queue)
-                    #         print_debug(self._print_target, self.debug_level,
-                    #                     f"Remote runner all job queues sent to {msg_data.get('requested by')}",
-                    #                     DEBUG_INFO)
+                    elif msg_data.get("type") == "get_conductors":
+                        if self.role == "remote":
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner requested conductors: {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            # make the job queue save its job queue and then after send it back to the local runner
+                            conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
+                            msg = f"Attached Conductors to {self.name}: {', '.join(conductor_names)}"
+                            conn.sendall(msg.encode())
+                            self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner conductors sent to {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            
+                    elif msg_data.get("type") == "get_handlers":
+                        if self.role == "remote":
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner requested handlers: {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            # make the job queue save its job queue and then after send it back to the local runner
+                            handler_names = [handler.__class__.__name__ for handler in self.handlers]
+                            msg = f"Attached Handlers to {self.name}: {', '.join(handler_names)}"
+                            conn.sendall(msg.encode())
+                            self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner handlers sent to {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            
+                    elif msg_data.get("type") == "get_monitors":
+                        if self.role == "remote":
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner requested monitors: {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            # make the job queue save its job queue and then after send it back to the local runner
+                            monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
+                            msg = f"Attached monitors to {self.name}: {', '.join(monitor_names)}"
+                            conn.sendall(msg.encode())
+                            self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner monitors sent to {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
 
                     else:
                         conn.sendall(data)
+                        self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                         print(f"LISTENING: {msg}", flush=True)
                 except Exception as e:
                     print_debug(self._print_target, self.debug_level,
@@ -885,16 +936,12 @@ class MeowRunner:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.local_runner_ip, handshake_port))
                 s.sendall(json.dumps(handshake_msg).encode())
-                # Option to read the response
-                """ data = s.recv(1024)
-                print_debug(self._print_target, self.debug_level,
-                    f"Received: {data.decode()}", DEBUG_INFO) """
+                self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 s.close()
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send handshake: {e}", DEBUG_WARNING)
             return
-
 
 
     def heartbeat_thread_dealer(self, hb_interval:int=5, hb_timeout:int=15):
@@ -905,10 +952,15 @@ class MeowRunner:
             return
 
         if self.role == "local" and self.network == 1 and self._heartbeat_listener_worker == None:
-            self._heartbeat_listener_worker= threading.Thread(target=self.setup_heartbeat_listener, daemon=True)
+            self._heartbeat_listener_worker= threading.Thread(target=self._setup_heartbeat_listener, daemon=True)
             self._heartbeat_listener_worker.start()
             print_debug(self._print_target, self.debug_level,
                 f"{self.role} Heartbeat: Listener started", DEBUG_INFO)
+            
+            self.hb_timeout_thead = threading.Thread(target=self.heartbeat_timeout_check, args=(hb_timeout,), daemon=True)
+            self.hb_timeout_thead.start()
+            print_debug(self._print_target, self.debug_level,
+                f"{self.role} Heartbeat: Timeout thread started", DEBUG_INFO)
 
         if self.role == "remote" and self.network == 1 and self.hb_sender_thread_active == False and self._heartbeat_sender_worker == None and self.hb_timeout_thead == None:
 
@@ -921,16 +973,15 @@ class MeowRunner:
             
             # Start Heartbeat Sender Threads
             self.hb_sender_thread_active = True
-            self._heartbeat_sender_worker= threading.Thread(target=self.send_heartbeat, args=(hb_interval, hb_timeout), daemon=True)
+            self._heartbeat_sender_worker= threading.Thread(target=self.send_heartbeat, args=(hb_interval,), daemon=True)
             self._heartbeat_sender_worker.start()
             print_debug(self._print_target, self.debug_level,
                 f"{self.role} Heartbeat: Sender started", DEBUG_INFO)
    
 
-    def send_heartbeat(self, hb_interval:int, hb_timeout:int):
+    def send_heartbeat(self, hb_interval:int):
         """Send heartbeats over a constant connection."""
         reconect_attempts = 0
-        hb_socket = None
 
         # Wait for the local runner IP to be set
         while self.network == 1:
@@ -946,64 +997,63 @@ class MeowRunner:
                             "[REMOTE RUNNER HEARTBEAT FUNC] Local runner IP not set, shutting down.", DEBUG_WARNING)
                 self.stop()
                 return
-            
-            try:
-                hb_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                hb_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                hb_socket.settimeout(5)
-                hb_socket.connect((self.local_runner_ip, self.hb_port))
-                """ print_debug(self._print_target, self.debug_level,
-                            "Persistent heartbeat sender connected", DEBUG_INFO) """
+            elaped_time = time.time() - self.last_network_communication
+            if elaped_time < hb_interval:
+                time.sleep(hb_interval)
+                continue
+            else:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as hb_socket:
+                        hb_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        hb_socket.settimeout(5)
+                        hb_socket.connect((self.local_runner_ip, self.hb_port))
+                        """ print_debug(self._print_target, self.debug_level,
+                                "Persistent heartbeat sender connected", DEBUG_INFO) """
 
-                while self.network == 1:
-                    heartbeat_msg = {
-                        "type": "heartbeat",
-                        "role": self.role,
-                        "name": self.name,
-                        "timestamp": time.time()
-                    }
-                    # Send heartbeat message
-                    hb_socket.sendall(json.dumps(heartbeat_msg).encode())
-                    
-                    try:
-                    # wait for ack
-                        data = hb_socket.recv(1024)
-                    except socket.timeout:
-                        print_debug(self._print_target, self.debug_level,
-                                    "Heartbeat ack timed out", DEBUG_WARNING)
-                        hb_socket.close()
-                        break
+                        heartbeat_msg = {
+                            "type": "heartbeat",
+                            "role": self.role,
+                            "name": self.name,
+                            "timestamp": time.time()
+                        }
+                        # Send heartbeat message
+                        hb_socket.sendall(json.dumps(heartbeat_msg).encode())
+                        self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                        try:
+                        # wait for ack
+                            data = hb_socket.recv(1024)
+                        except socket.timeout:
+                            print_debug(self._print_target, self.debug_level,
+                                        "Heartbeat ack timed out", DEBUG_WARNING)
+                            hb_socket.close()
+                            break
+                        if not data:
+                            print_debug(self._print_target, self.debug_level,
+                                        "Heartbeat connection failed or no data recieved", DEBUG_WARNING)
+                            hb_socket.close()
+                            break
 
-                    if not data:
-                        print_debug(self._print_target, self.debug_level,
-                                    "Heartbeat connection failed or no data recieved", DEBUG_WARNING)
-                        hb_socket.close()
-                        break
+                        # Data available, decode and check for ack from Local
+                        msg = json.loads(data.decode())
+                        if msg.get("type") == "hb_ack":
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Heartbeat ack from {msg.get('name')}", DEBUG_INFO)
+                            self.last_heartbeat_from_local = msg.get("timestamp", time.time())
+                            hb_socket.close()
+                        else:
+                            print_debug(self._print_target, self.debug_level,
+                                        "Message recieved was not Heartbeat ack", DEBUG_WARNING)
+                            hb_socket.close()
+                        time.sleep(hb_interval)
 
-                    # Data available, decode and check for ack from Local
-                    msg = json.loads(data.decode())
-                    if msg.get("type") == "hb_ack":
-                        print_debug(self._print_target, self.debug_level,
-                                    f"Heartbeat ack from {msg.get('name')}", DEBUG_INFO)
-                        self.last_heartbeat_from_local = msg.get("timestamp", time.time())
-                    else:
-                        print_debug(self._print_target, self.debug_level,
-                                    "Message recieved was not Heartbeat ack", DEBUG_WARNING)
-                    time.sleep(hb_interval)
-
-            except Exception as e:
-                print_debug(self._print_target, self.debug_level,
-                            f"Error in sending or maintaining heartbeat; closing constant connection: {e}", DEBUG_WARNING)
-
-            
-            finally:
-                if hb_socket:
-                    hb_socket.close()
+                except Exception as e:
                     print_debug(self._print_target, self.debug_level,
-                                "Heartbeat socket closed", DEBUG_INFO)
-                    hb_socket = None
-    
-    
+                                f"Error in sending heartbeat: {e}", DEBUG_WARNING)
+                    return
+                    
+            
+
+
     def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=1):
         """
             Periodically checks if 'hb_timeout' seconds have passed since
@@ -1176,10 +1226,6 @@ class MeowRunner:
                     f"Failed to transfer runner file: {e}", DEBUG_WARNING)
                 return
 
-
-        
-        
-
         if self.runner_file_name == None:
             meow_base_path = "/workspaces/meow_base/examples/"
             # meow_base_path = "/home/rlf574/meow_base/examples/"
@@ -1237,13 +1283,13 @@ class MeowRunner:
     #             f"SSH Key directory '{self.ssh_key_dir}' does not exist", DEBUG_WARNING)   
 
 
-    # Function to allow for debug msgs and handshake and heartbeat msgs to be sent to the Remote or Local machine depending on each Runners "role"
+    # Function to allow for debug msgs to be sent to the Remote or Local machine depending on each Runners "role"
     def send_message(self, ip_addr, message):
         """Function to send a message over the socket connection when 
         there is a status to report"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((ip_addr, self.debug_port))
+                sock.connect((ip_addr, 10002))
                 #print(f'IP: {self.ip_addr}, Port: {self.port}')
                 #print(f'Sending message: {message}')
 
@@ -1253,56 +1299,145 @@ class MeowRunner:
                 
                 message = f"{self.name}: {message}\n"
                 sock.sendall(message.encode())
-                #sock.shutdown(socket.SHUT_RDWR)
+                self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                data = sock.recv(1024)
+                if not data:
+                    print_debug(self._print_target, self.debug_level,
+                        "No data received from remote runner", DEBUG_WARNING)
+                    return
+                print(f"Received: {data.decode()}")
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send message: {e}", DEBUG_WARNING)
 
     
-    def send_attached_conductors(self):
-        """Function to send attached conductors to the remote machine"""
+    def send_and_recieve_json_msg(self, ip_addr, msg):
+        """Function to send a JSON message over the socket connection when 
+        there is a status to report"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect((ip_addr, 10002))
+                sock.sendall(json.dumps(msg).encode())
+                self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                data = sock.recv(1024)
+                if not data:
+                    print_debug(self._print_target, self.debug_level,
+                        "No data received from runner", DEBUG_WARNING)
+                    return
+                return (data.decode())
+        except Exception as e:
+            print_debug(self._print_target, self.debug_level,
+                f"Failed to send json message: {e}", DEBUG_WARNING)
 
-        if not self.conductors:
-            msg = f"No Conductors attached to {self.name}"
-            if self.role == "remote":
-                self.send_message(self.local_runner_ip, msg)
-            elif self.role == "local":
-                self.send_message(self.remote_runner_ip,msg)
+
+
+    def get_attached_conductors(self, target=None) -> None:
+        """Function to get attached conductors to the remote or local Runner"""
+        if target == None:
+            msg = {
+                    "type": "get_conductors",
+                    "requested by": self.name
+                }
+            remote_msg = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            local_conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
+            print(f"Attached Conductors to {self.name}: {', '.join(local_conductor_names)}\n{remote_msg}")
             return
-        else:
-            conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
-            msg = f"Attached Conductors to {self.name}: {', '.join(conductor_names)}"
-            if self.role == "remote":
-                self.send_message(self.local_runner_ip, msg)
-            elif self.role == "local":
-                self.send_message(self.remote_runner_ip, msg)
+
+        if target == "local":
+            if not self.conductors:
+                print(f"No Conductors attached to {self.name}")
+                return
+            else:
+                conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
+                print(f"Attached Conductors to {self.name}: {', '.join(conductor_names)}")
+                return
+    
+        if target == "remote":
+            if not self.conductors:
+                msg = f"No Conductors attached to {self.name}"
+                self.send_message(self.remote_runner_ip,msg)
+                return
+            else:
+                msg = {
+                    "type": "get_conductors",
+                    "requested by": self.name
+                }
+                conductors = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+                print(f"{conductors}")
+                return
             
     
 
-    def send_attached_handlers(self):
-        """Function to send attached handlers to the remote machine"""
-
-        if not self.handlers:
-            msg = f"No Handlers attached to {self.name}"
-            self.send_message(msg)
+    def get_attached_handlers(self, target=None) -> None:
+        """Function to get attached handlers from the remote or local Runner"""
+        if target == None:
+            msg = {
+                "type": "get_handlers",
+                "requested by": self.name
+            }
+            remote_msg = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            local_handler_names = [handler.__class__.__name__ for handler in self.handlers]
+            print(f"Attached Handlers to {self.name}: {', '.join(local_handler_names)}\n{remote_msg}")
             return
-        else:
-            handler_names = [handler.__class__.__name__ for handler in self.handlers]
-            msg = f"Attached Handlers to {self.name}: {', '.join(handler_names)}"
-            self.send_message(msg)
 
+        if target == "local":
+            if not self.handlers:
+                print(f"No Handlers attached to {self.name}")
+                return
+            else:
+                handler_names = [handler.__class__.__name__ for handler in self.handlers]
+                print(f"Attached Handlers to {self.name}: {', '.join(handler_names)}")
+                return
+    
+        if target == "remote":
+            if not self.handlers:
+                msg = f"No Handlers attached to {self.name}"
+                self.send_message(self.remote_runner_ip,msg)
+                return
+            else:
+                msg = {
+                    "type": "get_handlers",
+                    "requested by": self.name
+                }
+                handlers = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+                print(f"{handlers}")
+                return
+        
 
-    def send_attached_monitors(self):
-        """Function to send attached handlers to the remote machine"""
-
-        if not self.monitors:
-            msg = f"No Monitors attached to {self.name}"
-            self.send_message(msg)
+    def get_attached_monitors(self, target=None) -> None:
+        """Function to get attached handlers from the remote or local Runners"""
+        if target == None:
+            msg = {
+                "type": "get_monitors",
+                "requested by": self.name
+            }
+            remote_msg = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            local_monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
+            print(f"Attached Monitors to {self.name}: {', '.join(local_monitor_names)}\n{remote_msg}")
             return
-        else:
-            monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
-            msg = f"Attached Monitors to {self.name}: {', '.join(monitor_names)}"
-            self.send_message(msg)
+
+        if target == "local":
+            if not self.monitors:
+                print(f"No Monitors attached to {self.name}")
+                return
+            else:
+                monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
+                print(f"Attached Monitors to {self.name}: {', '.join(monitor_names)}")
+                return
+    
+        if target == "remote":
+            if not self.monitors:
+                msg = f"No Monitors attached to {self.name}"
+                self.send_message(self.remote_runner_ip,msg)
+                return
+            else:
+                msg = {
+                    "type": "get_monitors",
+                    "requested by": self.name
+                }
+                monitors = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+                print(f"{monitors}")
+                return
 
 
     # Maybe usefull - !Not Done!
@@ -1310,7 +1445,7 @@ class MeowRunner:
         """Function to send all attached components to the remote machine - (monitors, conductors, handlers)"""
         pass
     
-    def get_queue(self, target=None):
+    def get_queue(self, target=None) -> None:
         """Function to retrieve the job queues from the local and/or remote machines based on the input of the fuction"""
         if target == None:
             msg = {
@@ -1322,64 +1457,28 @@ class MeowRunner:
                 print_debug(self._print_target, self.debug_level,
                     "Remote runner IP not set, trying again in 2 seconds", DEBUG_WARNING)
                 time.sleep(2)
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect((self.remote_runner_ip, 10002))
-                    s.sendall(json.dumps(msg).encode())
-                    data = s.recv(1024)
-                    if not data:
-                        print_debug(self._print_target, self.debug_level,
-                            "No data received from remote runner", DEBUG_WARNING)
-                        return
-                    job_q = json.loads(data.decode())
-                    all_job_q = {
-                        "local": self.job_queue,
-                        "remote": job_q
-                    }
-                    print_debug(self._print_target, self.debug_level,
-                        f"Remote job queue: {all_job_q}", DEBUG_INFO)
 
-                    s.close()
-
-            except Exception as e:
-                print_debug(self._print_target, self.debug_level,
-                    f"Failed to send job queue: {e}", DEBUG_WARNING)
-                return
+            remote_q = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            local_q = self.job_queue
+            print(f"{self.name} job queue: {local_q}\n{self.remote_runner_name} job queue: {remote_q}")
+            return
         
         elif target == "local":
-            # make the json file and send it to the remote runner
+            # Print the local job queue
             job_q = self.job_queue
-            print_debug(self._print_target, self.debug_level,
-                f"Local job queue: {job_q}", DEBUG_INFO)
+            print(f"Local job queue: {job_q}")
             
         elif target == "remote":
-            # print out the remote job queue
+            # Print out the remote job queue
             msg = {
                 "type": "get_queue",
                 "requested by": self.name,
                 "timestamp": time.time()
             }
-            # print(msg)
             if self.remote_runner_ip == None:
                 print_debug(self._print_target, self.debug_level,
                     "Remote runner IP not set, trying again in 2 seconds", DEBUG_WARNING)
                 time.sleep(2)
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect((self.remote_runner_ip, 10002))
-                    s.sendall(json.dumps(msg).encode())
-                    data = s.recv(1024)
-                    if not data:
-                        print_debug(self._print_target, self.debug_level,
-                            "No data received from remote runner", DEBUG_WARNING)
-                        return
-                    job_q = json.loads(data.decode())
-                    print_debug(self._print_target, self.debug_level,
-                        f"Remote job queue: {job_q}", DEBUG_INFO)
-
-                    s.close()
-
-            except Exception as e:
-                print_debug(self._print_target, self.debug_level,
-                    f"Failed to send job queue: {e}", DEBUG_WARNING)
-                return
+            remote_q = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            print(f"{self.remote_runner_name} job queue: {remote_q}")
+            return
