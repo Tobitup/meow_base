@@ -195,6 +195,7 @@ class MeowRunner:
 
         # Bool check to see if hb timeout was reached
         self._hb_timed_out = False
+        self._remote_restart_requested = False
 
         self.runner_file_path = None
 
@@ -866,7 +867,6 @@ class MeowRunner:
                             print_debug(self._print_target, self.debug_level,
                                         f"Remote runner requested conductors: {msg_data.get('requested by')}",
                                         DEBUG_INFO)
-                            # make the job queue save its job queue and then after send it back to the local runner
                             conductor_names = [conductor.__class__.__name__ for conductor in self.conductors]
                             msg = f"Attached Conductors to {self.name}: {', '.join(conductor_names)}"
                             conn.sendall(msg.encode())
@@ -880,7 +880,6 @@ class MeowRunner:
                             print_debug(self._print_target, self.debug_level,
                                         f"Remote runner requested handlers: {msg_data.get('requested by')}",
                                         DEBUG_INFO)
-                            # make the job queue save its job queue and then after send it back to the local runner
                             handler_names = [handler.__class__.__name__ for handler in self.handlers]
                             msg = f"Attached Handlers to {self.name}: {', '.join(handler_names)}"
                             conn.sendall(msg.encode())
@@ -894,7 +893,6 @@ class MeowRunner:
                             print_debug(self._print_target, self.debug_level,
                                         f"Remote runner requested monitors: {msg_data.get('requested by')}",
                                         DEBUG_INFO)
-                            # make the job queue save its job queue and then after send it back to the local runner
                             monitor_names = [monitor.__class__.__name__ for monitor in self.monitors]
                             msg = f"Attached monitors to {self.name}: {', '.join(monitor_names)}"
                             conn.sendall(msg.encode())
@@ -902,7 +900,32 @@ class MeowRunner:
                             print_debug(self._print_target, self.debug_level,
                                         f"Remote runner monitors sent to {msg_data.get('requested by')}",
                                         DEBUG_INFO)
-
+                    elif msg_data.get("type") == "add_monitor":     # TODO NOT DONE YET
+                        # if self.role == "remote":
+                        #     print_debug(self._print_target, self.debug_level,
+                        #                 f"Remote runner requested to add monitor: {msg_data.get('requested by')}",
+                        #                 DEBUG_INFO)
+                        #     monitor_name = msg_data.get("name")
+                        #     monitor_type = msg_data.get("type")
+                        #     msg = f"Adding monitor {monitor_name} of type {monitor_type} to {self.name}"
+                        #     conn.sendall(msg.encode())
+                        #     self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                        pass
+                    elif msg_data.get("type") == "add_pattern":
+                        print("DEBUUGGGGGGGGGG")
+                        if self.role == "remote":
+                            # print("DEBUUGGGGGGGGGG")
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Remote runner requested to add pattern: {msg_data.get('requested by')}",
+                                        DEBUG_INFO)
+                            
+                            new_pattern = msg_data.get("pattern")
+                            print(f"Adding pattern: {new_pattern}")
+                            self.monitors[0].add_pattern(new_pattern)
+                            pattern_name = msg_data.get("name")
+                            msg = f"Adding pattern {pattern_name} to {self.name}"
+                            conn.sendall(msg.encode())
+                            self.last_network_communication = time.time()
                     else:
                         conn.sendall(data)
                         self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -920,7 +943,6 @@ class MeowRunner:
             f"Machines local IP: {local_ip}", DEBUG_INFO)
         return local_ip
     
-
 
     def send_handshake_to_local(self, handshake_port:int=10001):
         """Function to send a handshake message to the local machine"""
@@ -944,7 +966,7 @@ class MeowRunner:
             return
 
 
-    def heartbeat_thread_dealer(self, hb_interval:int=5, hb_timeout:int=15):
+    def heartbeat_thread_dealer(self, hb_interval:int=5, hb_timeout:int=7):
         
         if self.network != 1:
             print_debug(self._print_target, self.debug_level,
@@ -1051,8 +1073,6 @@ class MeowRunner:
                                 f"Error in sending heartbeat: {e}", DEBUG_WARNING)
                     return
                     
-            
-
 
     def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=1):
         """
@@ -1078,13 +1098,17 @@ class MeowRunner:
                 time_elapesd = time.time() - self.last_heartbeat_from_remote
                 if time_elapesd > hb_timeout:
                     print_debug(self._print_target, self.debug_level,
-                                f"Heartbeat timeout: {time_elapesd} seconds since last heartbeat from remote runner; Assuming Remote dead", DEBUG_WARNING)
+                                f"Heartbeat timeout: {time_elapesd} seconds since last heartbeat from remote runner; Assuming Remote dead - Attempting restart", DEBUG_WARNING)
                     self._hb_timed_out = True
-                    self.network = 0
-                    self.stop()
-                    return
-                time.sleep(hb_check_interval)
+                    self.remote_runner_ip = None
+                    self.remote_runner_name = None
+                    self.setup_ssh_connection_to_remote()
+                    self.last_heartbeat_from_remote = time.time()
 
+                    #self.network = 0
+                    #self.stop()
+                    
+                time.sleep(hb_check_interval)
 
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
@@ -1121,7 +1145,9 @@ class MeowRunner:
                 sftp.stat(remote_dir)
             except IOError:
                 sftp.mkdir(remote_dir)
-    
+                print_debug(self._print_target, self.debug_level,
+                        f"Directory for network configs not found -  {remote_dir} created", DEBUG_INFO)
+            
 
             remote_config_path = f"{remote_dir}/transfered_network_config.json"
             sftp.put(local_config_file, remote_config_path)
@@ -1206,25 +1232,26 @@ class MeowRunner:
         print_debug(self._print_target, self.debug_level,
             "SSH connection established", DEBUG_INFO)
     
+        if self._hb_timed_out == False and self._remote_restart_requested == False:
 
-        # Transfer the network config file to the remote machine
-        try:
-            local_config_to_send = self.generate_network_json_config()
-            self.transfer_network_config(client, local_config_to_send)
-        except Exception as e:
-            print_debug(self._print_target, self.debug_level,
-                f"Failed to transfer network config file: {e}", DEBUG_WARNING)
-            return
-
-
-        # Check for a runner file to transfer
-        if not self.runner_file_name == None:
+            # Transfer the network config file to the remote machine
             try:
-                self.transfer_local_located_runner_to_remote(client)
+                local_config_to_send = self.generate_network_json_config()
+                self.transfer_network_config(client, local_config_to_send)
             except Exception as e:
                 print_debug(self._print_target, self.debug_level,
-                    f"Failed to transfer runner file: {e}", DEBUG_WARNING)
+                    f"Failed to transfer network config file: {e}", DEBUG_WARNING)
                 return
+
+
+            # Check for a runner file to transfer
+            if not self.runner_file_name == None:
+                try:
+                    self.transfer_local_located_runner_to_remote(client)
+                except Exception as e:
+                    print_debug(self._print_target, self.debug_level,
+                        f"Failed to transfer runner file: {e}", DEBUG_WARNING)
+                    return
 
         if self.runner_file_name == None:
             meow_base_path = "/workspaces/meow_base/examples/"
@@ -1244,6 +1271,11 @@ class MeowRunner:
         #print("Remote stderr:", stderr.read().decode())
 
         client.close()
+        if self._remote_restart_requested == True:
+            print_debug(self._print_target, self.debug_level,
+                "Remote runner restarted successfully", DEBUG_INFO)
+            self._remote_restart_requested = False
+            self._hb_timed_out = False
 
 
     def load_transfered_network_config(self):
@@ -1329,7 +1361,50 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send json message: {e}", DEBUG_WARNING)
 
+    # [TODO] - Finish this
+    def add_monitor(self, monitor:BaseMonitor, target=None) -> None:
+        """Function to add a monitor to the target from the local runner"""
+        if target == None:
+            pass
+        if target == "local":
+            pass
+        if target == "remote":
+            msg = {
+                "type": "add_monitor",
+                "requested by": self.name,
+                "monitor": monitor
+            }
+            # added_monitor = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            # print(f"Added monitor: {added_monitor}")
+            print(f"msg(add_monitor): {msg}")
+            return
+        # if not isinstance(monitor, BaseMonitor):
+        #     raise TypeError(f"Monitor must be of type {BaseMonitor}")
+        # self.monitors.append(monitor)
+        # print_debug(self._print_target, self.debug_level,
+        #     f"Added monitor: {monitor.name}", DEBUG_INFO)
+        # print_debug(self._print_target, self.debug_level,
+        #     f"Attached monitors: {[m.name for m in self.monitors]}", DEBUG_INFO)
 
+   
+    def add_pattern_to_target(self, pattern, target=None) -> None:
+        if target == None:
+           pass
+        if target == "local":
+            pass
+        if target == "remote":
+            msg = {
+                "type": "add_pattern",
+                "requested by": self.name,
+                "pattern": pattern
+            }
+            # remote_msg = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
+            self.send_message(self.remote_runner_ip, msg)
+            
+            print(f"Remote msg: {msg}")
+    
+            return
+       
 
     def get_attached_conductors(self, target=None) -> None:
         """Function to get attached conductors to the remote or local Runner"""

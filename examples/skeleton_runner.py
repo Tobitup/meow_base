@@ -71,11 +71,11 @@ remote_runner.start()
 #print(f"Name of Local Runner: {remote_runner.local_runner_name}")
 #print(f"IP of Local Runner: {remote_runner.local_runner_ip}")
 
-time.sleep(10)
+time.sleep(20)
 
 # Used tomorrow to test if we can keep this running indefinitely, and then find a way to send a kill command to the remote, probably by saying when .stop is called on local, remotes should stop too.
 while remote_runner.network:
-    time.sleep(1)
+   time.sleep(1)
 
 print("Remote Runner is alive:", remote_runner.remote_alive)
 
