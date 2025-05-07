@@ -39,7 +39,8 @@ remote_runner = MeowRunner(
     WatchdogMonitor(
         FILE_BASE,
         patterns,
-        recipes
+        recipes,
+        name="monitor_1",
     ),
     PythonHandler(
         pause_time=1
