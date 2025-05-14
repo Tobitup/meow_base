@@ -358,7 +358,7 @@ class MeowRunner:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.local_ip_addr, self.debug_port))
-            s.listen(20)
+            s.listen(128)
             print_debug(self._print_target, self.debug_level,
                 "Listener thread listening...", DEBUG_INFO)
             
@@ -382,10 +382,6 @@ class MeowRunner:
                     listener_thread = threading.Thread(target=self.handle_listener_thread, args=(conn, addr))
                     listener_thread.daemon = True
                     listener_thread.start()
-                    # print_debug(self._print_target, self.debug_level,
-                    #     "Listener thread started", DEBUG_INFO)
-                    # print_debug(self._print_target, self.debug_level,
-                    #     f"Listening on port {self.port}", DEBUG_INFO)
 
 
     # Used for enabling the Remote Runner to listen for incoming messages from the Local Runner
@@ -394,7 +390,7 @@ class MeowRunner:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.local_ip_addr, 10002)) # When testing on own machine must use two different ports, but Idea is to only use one.
-            s.listen()
+            s.listen(128)
             print_debug(self._print_target, self.debug_level,
                 "Remote listener thread listening...", DEBUG_INFO)
             
@@ -409,9 +405,7 @@ class MeowRunner:
                     conn, addr = s.accept()
                     print_debug(self._print_target, self.debug_level,
                         f"Remote accepted connection from {addr}", DEBUG_INFO)
-                    listener_thread = threading.Thread(
-                        target=self.handle_listener_thread,
-                        args=(conn, addr))
+                    listener_thread = threading.Thread(target=self.handle_listener_thread, args=(conn, addr))
                     listener_thread.daemon = True
                     listener_thread.start()
                     print_debug(self._print_target, self.debug_level,
@@ -435,9 +429,7 @@ class MeowRunner:
                     return
                 if s in ready:
                     conn, addr = s.accept()
-                    listener_thread = threading.Thread(
-                        target=self.heartbeat_listener,
-                        args=(conn, addr))
+                    listener_thread = threading.Thread(target=self.heartbeat_listener, args=(conn, addr))
                     listener_thread.daemon = True
                     listener_thread.start()
 
@@ -448,6 +440,7 @@ class MeowRunner:
         with conn:
             while self.network == 1:
                 try:
+                    conn.settimeout(5)
                     data = conn.recv(1024)
                     if not data:
                         break
@@ -465,9 +458,10 @@ class MeowRunner:
                     }
                     conn.sendall(json.dumps(ack_response).encode())
                     self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                    return
                 except Exception as e:
                     print_debug(self._print_target, self.debug_level,
-                                f"Error in CONSISTANT heartbeat listener: {e}", DEBUG_WARNING)
+                                f"Error sending Heartbeat ACK back: {e}", DEBUG_WARNING)
                     break
     
     def start(self)->None:
@@ -581,7 +575,9 @@ class MeowRunner:
 
         if self.role == "local" and self.network == 1 and self.remote_runner_ip and not self._hb_timed_out:
             self._send_stop_cmd_to_remote()
-            while self.remote_alive:
+            timeout_time = 20
+            while self.remote_alive and timeout_time > 0:
+                timeout_time -= 1
                 print_debug(self._print_target, self.debug_level,
                     "Waiting for remote runner to stop...", DEBUG_INFO)
                 time.sleep(1)
@@ -684,16 +680,15 @@ class MeowRunner:
         }
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
                 s.connect((self.remote_runner_ip, 10002)) # Port used when testing on same machine, else should be 10001
                 s.sendall(json.dumps(stop_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
-                print(f"DEBUG: Sent stop message to remote runner: {stop_msg}")
                 print_debug(self._print_target, self.debug_level,
-                    "Stop message sent to remote machine", DEBUG_INFO)
-                s.close()
+                    "Stop message sent to Remote Machine", DEBUG_INFO)
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
-                f"Failed to send stop command to remote: {e}", DEBUG_WARNING)
+                f"Failed to send stop command to Remote: {e}", DEBUG_WARNING)
             self.remote_alive = False
             return
 
@@ -713,12 +708,13 @@ class MeowRunner:
         }
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
                 s.connect((self.local_runner_ip, self.debug_port))
                 s.sendall(json.dumps(confirm_shtdwn_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 print_debug(self._print_target, self.debug_level,
                     "Ack of shutdown sent to Local machine", DEBUG_INFO)
-                s.close()
+                return
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send ack of shutdown command to local: {e}", DEBUG_WARNING)
@@ -836,6 +832,7 @@ class MeowRunner:
             #print(f'Connected by {addr}')
             while self.network == 1:
                 try:
+                    conn.settimeout(15)
                     data = conn.recv(1024)
                     if not data:
                         break
@@ -993,10 +990,11 @@ class MeowRunner:
             "Sending handshake", DEBUG_INFO)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
                 s.connect((self.local_runner_ip, handshake_port))
                 s.sendall(json.dumps(handshake_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
-                s.close()
+                return
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send handshake: {e}", DEBUG_WARNING)
@@ -1074,20 +1072,14 @@ class MeowRunner:
                         # Send heartbeat message
                         hb_socket.sendall(json.dumps(heartbeat_msg).encode())
                         self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
-                        try:
                         # wait for ack back
-                            data = hb_socket.recv(1024)
-                        except socket.timeout:
-                            print_debug(self._print_target, self.debug_level,
-                                        "Heartbeat ack timed out", DEBUG_WARNING)
-                            hb_socket.close()
-                            break
+                        data = hb_socket.recv(1024)
                         if not data:
                             print_debug(self._print_target, self.debug_level,
                                         "Heartbeat connection failed or no data recieved", DEBUG_WARNING)
                             hb_socket.close()
                             break
-                        # Data available, decode and check for ack from Local
+                        # Data available, decode and check for ACK from Local
                         msg = json.loads(data.decode())
                         if msg.get("type") == "hb_ack":
                             print_debug(self._print_target, self.debug_level,
@@ -1336,15 +1328,17 @@ class MeowRunner:
         else:
             print_debug(self._print_target, self.debug_level,
                         f"Config file not found at {config_file}", DEBUG_WARNING)
+            return
  
 
     # Function to allow for debug msgs to be sent to the Remote or Local machine depending on each Runners "role"
-    def send_message(self, ip_addr, message):
+    def send_and_read_message(self, ip_addr, message):
         """Function to send a message over the socket connection when 
         there is a status to report"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((ip_addr, 10002))
+                sock.settimeout(5)
+                sock.connect((ip_addr, 10002)) # Change when running over network
                 message = f"{self.name}: {message}\n"
                 sock.sendall(message.encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1354,6 +1348,7 @@ class MeowRunner:
                         "No data received from Remote Runner", DEBUG_WARNING)
                     return
                 print(f"Received: {data.decode()}")
+                return
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send message: {e}", DEBUG_WARNING)
@@ -1364,6 +1359,7 @@ class MeowRunner:
         there is a status to report"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(5)
                 sock.connect((ip_addr, 10002))
                 sock.sendall(json.dumps(msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1376,7 +1372,7 @@ class MeowRunner:
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send json message: {e}", DEBUG_WARNING)
-
+            return
    
 
     def get_attached_conductors(self, target=None) -> None:
@@ -1403,7 +1399,7 @@ class MeowRunner:
         if target == "remote":
             if not self.conductors:
                 msg = f"No Conductors attached to {self.name}"
-                self.send_message(self.remote_runner_ip,msg)
+                self.send_and_read_message(self.remote_runner_ip,msg)
                 return
             else:
                 msg = {
@@ -1414,7 +1410,6 @@ class MeowRunner:
                 print(f"{conductors}")
                 return
             
-    
 
     def get_attached_handlers(self, target=None) -> None:
         """Function to get attached handlers from the remote or local Runner"""
@@ -1440,7 +1435,7 @@ class MeowRunner:
         if target == "remote":
             if not self.handlers:
                 msg = f"No Handlers attached to {self.name}"
-                self.send_message(self.remote_runner_ip,msg)
+                self.send_and_read_message(self.remote_runner_ip,msg)
                 return
             else:
                 msg = {
@@ -1476,7 +1471,7 @@ class MeowRunner:
         if target == "remote":
             if not self.monitors:
                 msg = f"No Monitors attached to {self.name}"
-                self.send_message(self.remote_runner_ip,msg)
+                self.send_and_read_message(self.remote_runner_ip,msg)
                 return
             else:
                 msg = {
@@ -1526,7 +1521,6 @@ class MeowRunner:
             print(f"{self.remote_runner_name} job queue: {remote_q}")
             return
         
-
     
     def add_monitor(self, monitor:BaseMonitor, target:str="local") -> None:
         check_type(monitor, BaseMonitor, hint="MeowRunner.add_monitor")
@@ -1556,7 +1550,6 @@ class MeowRunner:
             responds = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
             print_debug(self._print_target, self.debug_level,
                 f"Remote runner response: {responds}", DEBUG_INFO)
-            self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
             return
         raise ValueError(f"Unknown target “{target}” for add_monitor()")
 
@@ -1577,10 +1570,10 @@ class MeowRunner:
             responds = self.send_and_recieve_json_msg(self.remote_runner_ip, msg)
             print_debug(self._print_target, self.debug_level,
                 f"Remote runner response: {responds}", DEBUG_INFO)
-            self.last_network_communication = time.time()
             return
         raise ValueError(f"Unknown target “{target}” for add_pattern()")
     
+
     def get_attached_patterns(self, monitor:str=None, target:str="local") -> None:
         """Function to get the attached patterns to a local or remote monitor"""
         if monitor == None:
