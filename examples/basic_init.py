@@ -70,7 +70,7 @@ local_runner = MeowRunner(
         pause_time=1
     ),
     logging = 10,
-    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container"
+    name="Local Runner", role = "local", network = 1, ssh_config_alias="Own-System"
 )
 
 second_monitor = WatchdogMonitor(

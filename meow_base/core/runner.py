@@ -23,7 +23,7 @@ import base64
 from multiprocessing import Pipe
 from typing import Any, Union, Dict, List, Type, Tuple
 
-from meow_base.patterns.file_event_pattern import WatchdogMonitor, BasePattern
+from ..patterns.file_event_pattern import WatchdogMonitor, BasePattern
 
 from .base_conductor import BaseConductor
 from .base_handler import BaseHandler
@@ -69,7 +69,7 @@ class MeowRunner:
             name:str="Unnamed Runner", role:str="local",
 
             # Added Network Options
-            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), debug_port:int=10001, hb_port:int=10005,
+            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), msg_port:int=10001, debug_port:int=10001, hb_port:int=10005,
             runner_file_name:str=None )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
@@ -88,6 +88,7 @@ class MeowRunner:
 
 
         # Debugging port for network mode
+        self.msg_port = msg_port
         self.debug_port = debug_port
 
 
@@ -357,7 +358,7 @@ class MeowRunner:
         the remote machine."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((self.local_ip_addr, self.debug_port))
+            s.bind(("", self.msg_port))
             s.listen(128)
             print_debug(self._print_target, self.debug_level,
                 "Listener thread listening...", DEBUG_INFO)
@@ -389,7 +390,7 @@ class MeowRunner:
         """Function similar to setup_listener_thread, customized for the remote runner."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((self.local_ip_addr, 10002)) # When testing on own machine must use two different ports, but Idea is to only use one.
+            s.bind(("0.0.0.0", self.debug_port)) # When testing on own machine must use two different ports, but Idea is to only use one.
             s.listen(128)
             print_debug(self._print_target, self.debug_level,
                 "Remote listener thread listening...", DEBUG_INFO)
@@ -625,13 +626,13 @@ class MeowRunner:
             self.network = 0
         
         # Closes network threads.
-        if self._network_listener_worker is None and self.role == "local":
+        if self._network_listener_worker is None and self.role == "local" and self.network == 1:
             msg = "Cannot stop remote network listener thread that is not started."
             print_debug(self._print_target, self.debug_level,
                 msg, DEBUG_WARNING)
             raise RuntimeWarning(msg)
         else:
-            if self.role == "local":
+            if self.role == "local" and self.network == 1:
                 self._stop_listener_pipe[1].send(1)
                 self._network_listener_worker.join()
                 
@@ -641,13 +642,13 @@ class MeowRunner:
                     "Local Network listener thread stopped", DEBUG_INFO)
         
         
-        if self._remote_network_listener_worker is None and self.role == "remote":
+        if self._remote_network_listener_worker is None and self.role == "remote" and self.network == 1:
             msg = "Cannot stop network listener thread that is not started."
             print_debug(self._print_target, self.debug_level,
                 msg, DEBUG_WARNING)
             raise RuntimeWarning(msg)
         else:
-            if self.role == "remote":
+            if self.role == "remote" and self.network == 1:
                 self._stop_remote_listener_pipe[1].send(1)
                 self._remote_network_listener_worker.join()
                 self._heartbeat_sender_worker.join()
@@ -681,7 +682,7 @@ class MeowRunner:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(5)
-                s.connect((self.remote_runner_ip, 10002)) # Port used when testing on same machine, else should be 10001
+                s.connect((self.remote_runner_ip, self.debug_port)) # Port used when testing on same machine, else should be DEBUG_PORT
                 s.sendall(json.dumps(stop_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 print_debug(self._print_target, self.debug_level,
@@ -709,7 +710,7 @@ class MeowRunner:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(5)
-                s.connect((self.local_runner_ip, self.debug_port))
+                s.connect((self.local_runner_ip, self.msg_port))
                 s.sendall(json.dumps(confirm_shtdwn_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 print_debug(self._print_target, self.debug_level,
@@ -908,6 +909,7 @@ class MeowRunner:
                         monitor_names = [f" ({monitor.__class__.__name__}): {monitor.name}" for monitor in self.monitors]
                         msg = f"Attached Monitors to {self.name}: {', '.join(monitor_names)}"
                         conn.sendall(msg.encode())
+                        conn.shutdown(socket.SHUT_WR)
                         self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                         print_debug(self._print_target, self.debug_level,
                                     f"Monitors attached to {self.name} sent to {msg_data.get('requested by')}",
@@ -984,13 +986,13 @@ class MeowRunner:
             "type": "handshake",
             "role": self.role,
             "name": self.name,
-            "ip": self.local_ip_addr
+            "ip": "192.168.179.18"
         }
         print_debug(self._print_target, self.debug_level,
             "Sending handshake", DEBUG_INFO)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(5)
+                s.settimeout(10)
                 s.connect((self.local_runner_ip, handshake_port))
                 s.sendall(json.dumps(handshake_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1059,6 +1061,7 @@ class MeowRunner:
                 continue
             else:
                 try:
+                    start_hb_timer = time.time()
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as hb_socket:
                         hb_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                         hb_socket.settimeout(5)
@@ -1082,8 +1085,11 @@ class MeowRunner:
                         # Data available, decode and check for ACK from Local
                         msg = json.loads(data.decode())
                         if msg.get("type") == "hb_ack":
+                            time_taken = time.time() - start_hb_timer
                             print_debug(self._print_target, self.debug_level,
                                         f"Heartbeat ack from {msg.get('name')}", DEBUG_INFO)
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Heartbeat time taken: {time_taken:.2f} seconds", DEBUG_INFO)
                             self.last_heartbeat_from_local = msg.get("timestamp", time.time())
                             hb_socket.close()
                         else:
@@ -1137,8 +1143,8 @@ class MeowRunner:
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
         """Function to generate a JSON config file for network mode"""
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        # config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
 
@@ -1161,8 +1167,8 @@ class MeowRunner:
         try:
             # Again hardcoded directory, maybe change later
             sftp = client.open_sftp()
-            remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
-            # remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+            # remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
+            remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
 
             # Check if the directory exists, if not create it
             try:
@@ -1174,6 +1180,8 @@ class MeowRunner:
             
 
             remote_config_path = f"{remote_dir}/transfered_network_config.json"
+            print(f"Local config file: {local_config_file}")
+            print(f"Remote config path: {remote_config_path}")
             sftp.put(local_config_file, remote_config_path)
             print_debug(self._print_target, self.debug_level,
                     f"Transferred network config file to remote: {remote_config_path}", DEBUG_INFO)
@@ -1276,8 +1284,8 @@ class MeowRunner:
                     return
 
         if self.runner_file_name == None:
-            meow_base_path = "/workspaces/meow_base/examples/"
-            # meow_base_path = "/home/rlf574/meow_base/examples/"
+            # meow_base_path = "/workspaces/meow_base/examples/"
+            meow_base_path = "/home/rlf574/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1307,8 +1315,8 @@ class MeowRunner:
         """ Looks for the JSON config file in the .netconfs folder, parses the file, and stores the local runner's Name and IP."""
 
         # These dirs are currently hard coded. Maybe a good idea to make it more robust and constimizable later
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        # config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         
         # Naming of the file is also hard coded atm, another idea could be to timestamp them and look for the latest one, (but maybe out of scope if we asume only ever one Remote Runner)
         config_file = os.path.join(config_dir, "transfered_network_config.json")
@@ -1338,7 +1346,7 @@ class MeowRunner:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(5)
-                sock.connect((ip_addr, 10002)) # Change when running over network
+                sock.connect((ip_addr, self.debug_port)) # Change when running over network
                 message = f"{self.name}: {message}\n"
                 sock.sendall(message.encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1360,7 +1368,7 @@ class MeowRunner:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(5)
-                sock.connect((ip_addr, 10002))
+                sock.connect((ip_addr, self.debug_port))
                 sock.sendall(json.dumps(msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
                 data = sock.recv(1024)
