@@ -11,16 +11,16 @@ from distutils.dir_util import copy_tree
 from time import sleep
 from typing import Any, Dict, List, Tuple
 
-from ..meow_base.core.base_conductor import BaseConductor
-from ..meow_base.core.base_handler import BaseHandler
-from ..meow_base.core.base_monitor import BaseMonitor
-from ..meow_base.core.base_pattern import BasePattern
-from ..meow_base.core.base_recipe import BaseRecipe
-from ..meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
+from meow_base.core.base_conductor import BaseConductor
+from meow_base.core.base_handler import BaseHandler
+from meow_base.core.base_monitor import BaseMonitor
+from meow_base.core.base_pattern import BasePattern
+from meow_base.core.base_recipe import BaseRecipe
+from meow_base.core.vars import DEFAULT_JOB_OUTPUT_DIR, \
     DEFAULT_JOB_QUEUE_DIR, LOCK_EXT
-from ..meow_base.functionality.file_io import make_dir, rmtree
-from ..meow_base.patterns.file_event_pattern import FileEventPattern
-from ..meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
+from meow_base.functionality.file_io import make_dir, rmtree
+from meow_base.patterns.file_event_pattern import FileEventPattern
+from meow_base.recipes.jupyter_notebook_recipe import JupyterNotebookRecipe
 
 # testing 
 TEST_DIR = "test_files"
