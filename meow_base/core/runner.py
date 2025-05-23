@@ -195,7 +195,7 @@ class MeowRunner:
         # Threads active on Remote side
         self.hb_sender_thread_active = False
         self.hb_timeout_thead = None
-        
+
         self.runner_file_path = None
 
     def _add_local_pattern(self, monitor_name:str, pattern:BasePattern)->None:
@@ -1098,7 +1098,7 @@ class MeowRunner:
             "Sending handshake", DEBUG_INFO)
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(5)
+                s.settimeout(10)
                 s.connect((self.local_runner_ip, handshake_port))
                 s.sendall(json.dumps(handshake_msg).encode())
                 self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1196,6 +1196,8 @@ class MeowRunner:
                             print(f"Heartbeat sent and ack received in {time_taken:.2f} seconds")
                             print_debug(self._print_target, self.debug_level,
                                         f"Heartbeat ack from {msg.get('name')}", DEBUG_INFO)
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Heartbeat time taken: {time_taken:.2f} seconds", DEBUG_INFO)
                             self.last_heartbeat_from_local = msg.get("timestamp", time.time())
                             hb_socket.close()
                         else:
@@ -1276,8 +1278,8 @@ class MeowRunner:
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
         """Function to generate a JSON config file for network mode"""
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        # config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
 
@@ -1300,8 +1302,8 @@ class MeowRunner:
         try:
             # Again hardcoded directory, maybe change later
             sftp = client.open_sftp()
-            remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
-            #remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+            # remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
+            remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
 
             #print(f"RemoteDIR: {remote_dir}")
             # Check if the directory exists, if not create it
@@ -1464,8 +1466,8 @@ class MeowRunner:
                 return
 
         if self.runner_file_name == None:
-            meow_base_path = "/workspaces/meow_base/examples/"
-            #meow_base_path = "/home/rlf574/meow_base/examples/"
+            # meow_base_path = "/workspaces/meow_base/examples/"
+            meow_base_path = "/home/rlf574/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1497,8 +1499,8 @@ class MeowRunner:
         """ Looks for the JSON config file in the .netconfs folder, parses the file, and stores the local runner's Name and IP."""
 
         # These dirs are currently hard coded. Maybe a good idea to make it more robust and constimizable later
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        #config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         
         # Naming of the file is also hard coded atm, another idea could be to timestamp them and look for the latest one, (but maybe out of scope if we asume only ever one Remote Runner)
         config_file = os.path.join(config_dir, "transfered_network_config.json")
