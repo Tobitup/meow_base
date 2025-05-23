@@ -49,7 +49,6 @@ remote_runner = MeowRunner(
         pause_time=1
     ),
     logging = 10,
-    name="Remote Runner",
     role="remote",
     network = 1
 )
@@ -78,7 +77,7 @@ time.sleep(20)
 while remote_runner.network:
    time.sleep(1)
 
-print("Remote Runner is alive:", remote_runner.remote_alive)
+#print("Remote Runner is alive:", remote_runner.remote_alive)
 
 #remote_runner.check_remote_runner_alive()
 
