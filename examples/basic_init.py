@@ -70,8 +70,7 @@ local_runner = MeowRunner(
         pause_time=1
     ),
     logging = 10,
-    name="Local Runner", role = "local", network = 1, ssh_config_alias="Own-System"
-)
+    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container")
 
 second_monitor = WatchdogMonitor(
         FILE_BASE,
@@ -83,18 +82,18 @@ local_runner.start()
 
 time.sleep(10)
 
-#local_runner.get_queue()
-#local_runner.get_attached_conductors()
+#local_runner.get_queue(target="remote")
+local_runner.get_attached_conductors()
 #local_runner.get_attached_handlers()
-# local_runner.get_attached_monitors()
+#local_runner.get_attached_monitors(target="remote")
 time.sleep(2)
-#local_runner.add_monitor(target = "remote",monitor = second_monitor)
-time.sleep(2)
-#local_runner.get_attached_monitors()
+#local_runner.add_monitor(target = "remote", monitor = second_monitor)
+#time.sleep(5)
+#local_runner.get_attached_monitors("remote")
 
 #local_runner.add_pattern(target="remote", monitor_name = "monitor_1", pattern = new_pattern)
 #local_runner.get_attached_patterns(target="remote", monitor = "monitor_1")
-time.sleep(10)
+#time.sleep(10)
 
 
 
