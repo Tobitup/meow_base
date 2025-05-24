@@ -458,6 +458,7 @@ class MeowRunner:
                     }
                     conn.sendall(json.dumps(ack_response).encode())
                     self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
+                    conn.close()
                     return
                 except Exception as e:
                     print_debug(self._print_target, self.debug_level,
@@ -985,7 +986,8 @@ class MeowRunner:
             "type": "handshake",
             "role": self.role,
             "name": self.name,
-            "ip": "192.168.179.18"
+            # "ip": "192.168.179.18"
+            "ip": self.local_ip_addr,
         }
         print_debug(self._print_target, self.debug_level,
             "Sending handshake", DEBUG_INFO)
@@ -1300,7 +1302,7 @@ class MeowRunner:
                 f"Requested runner file name: {requested_runner}", DEBUG_INFO)
 
         #stdin, stdout, stderr = 
-        client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log.txt 2>&1 &')
+        client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} > log.txt 2>&1 &')
     
         # Redirect stdout and stderr of Remote to Local terminal ( Not needed when logging to file )
         #print("Remote stdout:", stdout.read().decode())

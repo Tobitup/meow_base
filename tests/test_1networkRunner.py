@@ -7,7 +7,10 @@ import tempfile
 import shutil
 import aiosmtpd
 import unittest.mock
+import json
+import time
 from unittest.mock import MagicMock, patch, mock_open, call, Mock
+
 
 from multiprocessing import Pipe
 from random import shuffle
@@ -42,6 +45,7 @@ from tests.shared import TEST_JOB_QUEUE, TEST_JOB_OUTPUT, \
     MULTI_PYTHON_SCRIPT, setup, teardown, backup_before_teardown, \
     count_non_locks, check_shutdown_port_in_timeout, check_port_in_use
 
+FILE_BASE = os.path.join(tempfile.gettempdir(), "runner_base")
 
     
 FILE_BASE = "runner_base"
@@ -78,32 +82,25 @@ recipes = {
     hello_recipe.name: hello_recipe,
 }
 
-# local_runner = MeowRunner(
-#     WatchdogMonitor(
-#         FILE_BASE,
-#         patterns,
-#         recipes,
-#         name="monitor_1",
-#     ),
-#     PythonHandler(
-#         pause_time=1
-#     ),
-#     LocalPythonConductor(
-#         pause_time=1
-#     ),
-#     logging = 10,
-#     name="Local Runner", role = "local", network = 1, ssh_config_alias="Container"
-# )
 
 # This is for testing the networking functionality of the MeowRunner
 class TestNetworkRunner(unittest.TestCase):
     def setUp(self)->None:
         super().setUp()
         setup()
+        make_dir(FILE_BASE)  
+        make_dir(os.path.join(FILE_BASE, INPUT_DIR))
 
     def tearDown(self)->None:
         super().tearDown()
+        # Add proper network cleanup
+        if hasattr(self, 'local_runner'):
+            self.local_runner.stop()
+            time.sleep(2)  # Allow sockets to fully close
+        if os.path.exists(FILE_BASE):
+            shutil.rmtree(FILE_BASE)
         teardown()
+        
         
 
     def testMeowRunnerPythonExecution(self)->None:
@@ -137,7 +134,7 @@ class TestNetworkRunner(unittest.TestCase):
             LocalPythonConductor(pause_time=2),
             job_queue_dir=TEST_JOB_QUEUE,
             job_output_dir=TEST_JOB_OUTPUT,
-            name="Test Local Runner", network=1, ssh_config_alias="Container", debug_port=10002
+            name="Test Local Runner", network=1, ssh_config_alias="Own-System", debug_port=10002
         )
 
         # Intercept messages between the conductor and runner for testing
@@ -199,16 +196,16 @@ class TestNetworkRunner(unittest.TestCase):
         self.assertEqual(len(os.listdir(TEST_JOB_OUTPUT)), 1)
         self.assertTrue(os.path.exists(job_dir))
 
-        # --------------------------------------------------------------- #
+        # ----------------------------------------------------------------------------- #
 
         # Check if local runner is instantiated correctly
         self.assertEqual(local_runner.name, "Test Local Runner")
         self.assertEqual(local_runner.role, "local")
         self.assertEqual(local_runner.network, 1)
-        self.assertEqual(local_runner.ssh_config_alias, "Container")
+        self.assertEqual(local_runner.ssh_config_alias, "Own-System")
         
         
-        # --------------------------- Local monitor tests get/add --------------------------- #
+        # ------------------------ Local monitor tests get/add ------------------------ #
         
         # Check if local runner's count of attached monitors is as expected        
         montor_names = local_runner.get_attached_monitors(target="local")
@@ -233,7 +230,8 @@ class TestNetworkRunner(unittest.TestCase):
         self.assertEqual(local_runner.monitors[1].name, "monitor_2")
         
 
-        # ------------------------- Local pattern tests get/add ------------------------ #        
+        # ------------------------- Local pattern tests get/add ------------------------ #
+              
         attached_patterns = local_runner.get_attached_patterns(monitor="monitor_2", target="local")
         
         self.assertEqual(len(attached_patterns), 1)
@@ -268,6 +266,7 @@ class TestNetworkRunner(unittest.TestCase):
         
         # --------------------------- Local runner get test --------------------------- #
         # # ---------------------- get attached conductors test ----------------------# #
+        
         conductors = local_runner.get_attached_conductors(target="local")
         self.assertEqual(len(conductors), 1)
         self.assertEqual(conductors[0], "LocalPythonConductor")
@@ -275,6 +274,7 @@ class TestNetworkRunner(unittest.TestCase):
         
         
         # # ----------------------- get attached handlers test -----------------------# #
+        
         handlers = local_runner.get_attached_handlers(target="local")
         self.assertEqual(len(handlers), 1)
         self.assertEqual(handlers[0], "PythonHandler")
@@ -282,13 +282,15 @@ class TestNetworkRunner(unittest.TestCase):
         
         
         # # ------------------------ get attached queue test -------------------------# #
+        
         job_queue = local_runner.get_queue(target="local")
         self.assertEqual(job_queue, [])
     
 
         # ----------------------------- Remote alive test ----------------------------- #
+        
         # Check if remote local_runner's IP address is as expected
-        self.assertEqual(local_runner.remote_runner_ip, "172.17.0.2")
+        self.assertEqual(local_runner.remote_runner_ip, local_runner.local_ip_addr)
         
         # Check if remote local_runner is alive 
         self.assertTrue(local_runner.remote_alive)
@@ -321,44 +323,31 @@ class TestNetworkRunner(unittest.TestCase):
         
         # ----------------------------------------------------------------------------- #
 
-
-
-                
-    # def test_runner_instantiation(self):
-    #     # Test instantiation of MeowRunner with a network conductor
-    #     pass
-            
-    # def test_runner_ssh_config(self):
-    #     # Mock ssh_config
-    #     pass
+    def testNetconfig(self):          
+        netconf_path = os.path.expanduser("~/meow_base/meow_base/.netconfs/transfered_network_config.json")
+        # Check if the file exists
+        if not os.path.exists(netconf_path):
+            raise FileNotFoundError(f"File {netconf_path} does not exist.")
         
-    # def test_runner_start(self):
-    #     # Test starting the MeowRunner
-    #     # runner = MeowRunner(
-    #     #     WatchdogMonitor(
-    #     #         FILE_BASE,
-    #     #         patterns,
-    #     #         recipes,
-    #     #         name="monitor_1",
-    #     #     ),
-    #     #     PythonHandler(
-    #     #         pause_time=1
-    #     #     ),
-    #     #     LocalPythonConductor(
-    #     #         pause_time=1
-    #     #     ),
-    #     #     logging=10,
-    #     #     name="Local Runner", 
-    #     #     role="local", 
-    #     #     network=1, 
-    #     #     ssh_config_alias="Container"
-    #     # )
-    #     # runner.start()
-    #     # runner.stop()
-    #     pass
-    
-    def tearDown(self):
-        pass
+        # Check if the file is empty
+        if os.path.getsize(netconf_path) == 0:
+            raise ValueError(f"File {netconf_path} is empty.")
+        
+        # Read the file        
+        with open(netconf_path, "r") as f:
+            data = f.read()
+            # Check if the file is a valid JSON
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                raise ValueError(f"File {netconf_path} is not a valid JSON.")
+            
+        # Check if the IP address is correct
+        self.assertEqual(data["ip"], "127.0.1.1") # should be: local_runner.local_ip_addr
+        
+        # Check if the name is correct
+        self.assertEqual(data["name"], "Test Local Runner") # should be: local_runner.name           
+                
 
 if __name__ == '__main__':
     unittest.main()
