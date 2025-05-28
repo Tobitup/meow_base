@@ -19,6 +19,8 @@ import json
 
 import pickle
 import base64
+import psutil
+
 
 from multiprocessing import Pipe
 from typing import Any, Optional, Union, Dict, List, Type, Tuple
@@ -70,7 +72,7 @@ class MeowRunner:
 
             # Added Network Options
             network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), msg_port:int=10001, debug_port:int=10002, hb_port:int=10005,
-            runner_file_name:str=None )->None:
+            runner_file_name:str=None, runners_to_start:int=1 )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
         or consume."""
@@ -82,12 +84,14 @@ class MeowRunner:
 
         self.network = network
         self.ssh_config_alias = ssh_config_alias
+        self.runners_to_start = runners_to_start
 
         # Another implementation to determine if Runner is Remote or Local (Does not force Runner to be called Remote to detect)
         self.role = role
        
         self.ssh_private_key_dir = ssh_private_key_dir
         self.runner_file_name = runner_file_name
+
 
 
 
@@ -447,11 +451,12 @@ class MeowRunner:
                     if not data:
                         break
                     heartbeat = json.loads(data.decode())
+                    recive_time = time.time()
                     rname = heartbeat.get("name")
                     hb_from_remote = heartbeat.get("timestamp", time.time())
                     print_debug(self._print_target, self.debug_level,
                                 f"Received heartbeat from {heartbeat.get('name')}", DEBUG_INFO)
-                    
+                    time_taken = recive_time - hb_from_remote
                     # If some runner was overlooked register it here
                     if rname not in self.remote_runners:
                         self.remote_runners[rname] = {
@@ -590,17 +595,32 @@ class MeowRunner:
         threads."""
 
         if self.role == "local" and self.network == 1:
-            for rname in self.remote_runners:
+            time_to_wait_to_send_another_stop = 15
+            time_to_wait_for_shutdown = 45
+            start = time.time()
+            for rname in list(self.remote_runners.keys()):
                 #if self.remote_runners[rname]["timed_out"] == False:
                 self._send_stop_cmd_to_remote(rname)
                 continue
             # Check if remote runner list is empty
             print(f"Length of remote runners: {len(self.remote_runners)}")
-            print(f"Remote runners: {self.remote_runners}")
+            #print(f"Remote runners: {self.remote_runners}")
             while len(self.remote_runners) > 0:
                 print_debug(self._print_target, self.debug_level,
                     "Waiting for all remote runners to shutdown...", DEBUG_INFO)
                 time.sleep(2)
+                time_elaped = time.time() - start
+                if time_elaped > time_to_wait_to_send_another_stop:
+                    print_debug(self._print_target, self.debug_level,
+                        "Sending stop command to all remote runners again", DEBUG_INFO)
+                    for rname in list(self.remote_runners.keys()):
+                        self._send_stop_cmd_to_remote(rname)
+                    #start = time.time()
+                if time_elaped > time_to_wait_for_shutdown:
+                    print_debug(self._print_target, self.debug_level,
+                        "Timed out waiting for remote runners to shutdown, shutting down local", DEBUG_WARNING)
+                    self.network = 0
+                    break
             if len(self.remote_runners) == 0:
                 print_debug(self._print_target, self.debug_level,
                     "All Remote Runners Shutdown - Shutting down Local", DEBUG_INFO)
@@ -719,6 +739,7 @@ class MeowRunner:
         except Exception as e:
             print_debug(self._print_target, self.debug_level,
                 f"Failed to send stop command to Remote: {e}", DEBUG_WARNING)
+            del self.remote_runners[rname]
             #self.remote_alive = False
             return
 
@@ -1133,7 +1154,6 @@ class MeowRunner:
                 continue
             else:
                 try:
-                    time_to_send_and_recive_hb = time.time() # Used for testing of overhead and time taken to send heartbeats.
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as hb_socket:
                         hb_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                         hb_socket.settimeout(5)
@@ -1144,6 +1164,7 @@ class MeowRunner:
                             "name": self.name,
                             "timestamp": time.time()
                         }
+                        time_to_send_and_recive_hb = time.time() # Used for testing of overhead and time taken to send heartbeats.
                         # Send heartbeat message
                         hb_socket.sendall(json.dumps(heartbeat_msg).encode())
                         self.last_network_communication = time.time() # RESET COUNTDOWN TIMER
@@ -1225,8 +1246,8 @@ class MeowRunner:
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
         """Function to generate a JSON config file for network mode"""
-        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        #config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
 
@@ -1249,8 +1270,8 @@ class MeowRunner:
         try:
             # Again hardcoded directory, maybe change later
             sftp = client.open_sftp()
-            # remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
-            remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+            remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
+            #remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
 
             #print(f"RemoteDIR: {remote_dir}")
             # Check if the directory exists, if not create it
@@ -1292,7 +1313,7 @@ class MeowRunner:
             raise ValueError(f"Runner {self.runner_file_name} not found in JSON file")
 
 
-    def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_manifest_filepath:Any=os.path.expanduser("/home/rlf574/meow_base/examples/runners/.runner_confs.json")): # "/workspaces/meow_base/examples/runners/.runner_confs.json"
+    def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_manifest_filepath:Any=os.path.expanduser("/workspaces/meow_base/examples/runners/.runner_confs.json")): # "/workspaces/meow_base/examples/runners/.runner_confs.json" /home/rlf574/meow_base/examples/runners/.runner_confs.json
         """Function to transfer the runner to the remote machine"""
 
         self.load_runner_filepath(runner_manifest_filepath)
@@ -1332,13 +1353,14 @@ class MeowRunner:
         host_name = self.remote_runners[runner_name]["ssh_hostname"]
         user = self.remote_runners[runner_name]["ssh_user"]
         port = self.remote_runners[runner_name]["ssh_port"]
+        del self.remote_runners[runner_name]
         client.connect(hostname = host_name, username = user, port = port, key_filename = self.ssh_private_key_dir)
         print_debug(self._print_target, self.debug_level,
             f"SSH connection established agin to {runner_name}", DEBUG_INFO)
         
         if self.runner_file_name == None:
-            # meow_base_path = "/workspaces/meow_base/examples/"
-            meow_base_path = "/home/rlf574/meow_base/examples/"
+            meow_base_path = "/workspaces/meow_base/examples/"
+            #meow_base_path = "/home/rlf574/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1349,7 +1371,7 @@ class MeowRunner:
                 f"Requested runner file name: {requested_runner}", DEBUG_INFO)
 
         #stdin, stdout, stderr = 
-        client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} > log.txt 2>&1 &')
+        client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &')
         client.close()
 
 
@@ -1400,8 +1422,8 @@ class MeowRunner:
                 return
 
         if self.runner_file_name == None:
-            # meow_base_path = "/workspaces/meow_base/examples/"
-            meow_base_path = "/home/rlf574/meow_base/examples/"
+            meow_base_path = "/workspaces/meow_base/examples/"
+            #meow_base_path = "/home/rlf574/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1411,9 +1433,13 @@ class MeowRunner:
             print_debug(self._print_target, self.debug_level,
                 f"Requested runner file name: {requested_runner}", DEBUG_INFO)
 
-        client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} > log.txt 2>&1 &')
-        client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} > log1.txt 2>&1 &')
-        client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} > log2.txt 2>&1 &')
+        for i in range(self.runners_to_start):
+            client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &')
+            active_threads = threading.enumerate()
+            print(f"Active threads before starting runner {i}: {[t.name for t in active_threads]}")
+            
+        #client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log1.txt 2>&1 &')
+        #client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log2.txt 2>&1 &')
 
         # Redirect stdout and stderr of Remote to Local terminal ( Not needed when logging to file )
         #print("Remote stdout:", stdout.read().decode())
@@ -1427,8 +1453,8 @@ class MeowRunner:
         """ Looks for the JSON config file in the .netconfs folder, parses the file, and stores the local runner's Name and IP."""
 
         # These dirs are currently hard coded. Maybe a good idea to make it more robust and constimizable later
-        # config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        #config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
         
         # Naming of the file is also hard coded atm, another idea could be to timestamp them and look for the latest one, (but maybe out of scope if we asume only ever one Remote Runner)
         config_file = os.path.join(config_dir, "transfered_network_config.json")
