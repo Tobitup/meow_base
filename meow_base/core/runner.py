@@ -78,9 +78,9 @@ class MeowRunner:
         or consume."""
 
         if not name:
-            self.name = f"Unnamed Runner{os.getpid()}"
+            self.name = f"Unnamed_Runner{os.getpid()}:{time.time():.0f}"
         else:
-            self.name = name
+            self.name = f"{name}:{os.getpid()}"
 
         self.network = network
         self.ssh_config_alias = ssh_config_alias
@@ -1072,7 +1072,7 @@ class MeowRunner:
         return local_ip
     
 
-    def send_handshake_to_local(self, handshake_port:int=10001):
+    def send_handshake_to_local(self):
         """Function to send a handshake message to the local machine"""
         handshake_msg = {
             "type": "handshake",
@@ -1083,7 +1083,7 @@ class MeowRunner:
         }
         print_debug(self._print_target, self.debug_level,
             "Sending handshake", DEBUG_INFO)
-        responds = self.send_and_recieve_json_msg(self.local_runner_ip, handshake_port, handshake_msg)
+        responds = self.send_and_recieve_json_msg(self.local_runner_ip, self.msg_port, handshake_msg)
         if responds is None:
             print_debug(self._print_target, self.debug_level,
                 "Handshake failed - No response from Local", DEBUG_WARNING)
@@ -1246,14 +1246,19 @@ class MeowRunner:
     # Function to auto generate the network config file, holding local IP and Name for now.
     def generate_network_json_config(self):
         """Function to generate a JSON config file for network mode"""
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        #config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        if sys.version_info[:3] == (3, 12, 3): # Used to tell our two systems apart
+            config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        else:
+            user = os.environ.get("USER") or os.environ.get("USERNAME") # Allows for all standard Ubuntu setups to run the code
+            config_dir = f"/home/{user}/meow_base/meow_base/.netconfs"
         if not os.path.exists(config_dir):
             os.makedirs(config_dir)
 
         config = {
             "name": self.name,
-            "ip": self.local_ip_addr # Changed when actually comunicating over a network
+            "ip": self.local_ip_addr,
+            "msg_port": self.msg_port
+
         }
         conf_file = os.path.join(config_dir, "network_config.json")
 
@@ -1270,8 +1275,11 @@ class MeowRunner:
         try:
             # Again hardcoded directory, maybe change later
             sftp = client.open_sftp()
-            remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
-            #remote_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+            if sys.version_info[:3] == (3, 12, 3):
+                remote_dir = "/workspaces/meow_base/meow_base/.netconfs"
+            else:
+                user = os.environ.get("USER") or os.environ.get("USERNAME")
+                remote_dir = f"/home/{user}/meow_base/meow_base/.netconfs"
 
             #print(f"RemoteDIR: {remote_dir}")
             # Check if the directory exists, if not create it
@@ -1316,6 +1324,12 @@ class MeowRunner:
     def transfer_local_located_runner_to_remote(self, client: paramiko.SSHClient, runner_manifest_filepath:Any=os.path.expanduser("/workspaces/meow_base/examples/runners/.runner_confs.json")): # "/workspaces/meow_base/examples/runners/.runner_confs.json" /home/rlf574/meow_base/examples/runners/.runner_confs.json
         """Function to transfer the runner to the remote machine"""
 
+        if sys.version_info[:3] == (3, 12, 3):
+            runner_manifest_filepath = "/workspaces/meow_base/examples/runners/.runner_confs.json"
+        else:
+            user = os.environ.get("USER") or os.environ.get("USERNAME")
+            runner_manifest_filepath = f"/home/{user}/meow_base/examples/runners/.runner_confs.json"
+
         self.load_runner_filepath(runner_manifest_filepath)
 
         try:
@@ -1359,8 +1373,11 @@ class MeowRunner:
             f"SSH connection established agin to {runner_name}", DEBUG_INFO)
         
         if self.runner_file_name == None:
-            meow_base_path = "/workspaces/meow_base/examples/"
-            #meow_base_path = "/home/rlf574/meow_base/examples/"
+            if sys.version_info[:3] == (3, 12, 3):
+                meow_base_path = "/workspaces/meow_base/examples/"
+            else:
+                user = os.environ.get("USER") or os.environ.get("USERNAME")
+                meow_base_path = f"/home/{user}/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1371,7 +1388,10 @@ class MeowRunner:
                 f"Requested runner file name: {requested_runner}", DEBUG_INFO)
 
         #stdin, stdout, stderr = 
-        client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &')
+        if sys.version_info[:3] == (3, 12, 3):
+            client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &')
+        else:
+            client.exec_command(f'cd {meow_base_path} && nohup python3 {requested_runner} &')
         client.close()
 
 
@@ -1422,8 +1442,11 @@ class MeowRunner:
                 return
 
         if self.runner_file_name == None:
-            meow_base_path = "/workspaces/meow_base/examples/"
-            #meow_base_path = "/home/rlf574/meow_base/examples/"
+            if sys.version_info[:3] == (3, 12, 3):
+                meow_base_path = "/workspaces/meow_base/examples/"
+            else:
+                user = os.environ.get("USER") or os.environ.get("USERNAME")
+                meow_base_path = f"/home/{user}/meow_base/examples/"
             requested_runner = "skeleton_runner.py"
         else:
             meow_base_path = self.runner_file_path
@@ -1432,19 +1455,13 @@ class MeowRunner:
             requested_runner = self.runner_file_name
             print_debug(self._print_target, self.debug_level,
                 f"Requested runner file name: {requested_runner}", DEBUG_INFO)
-
+        
+        if sys.version_info[:3] == (3, 12, 3):
+            cmd = f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &'
+        else:
+            cmd = f'cd {meow_base_path} && nohup python3 {requested_runner} &'
         for i in range(self.runners_to_start):
-            client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} &')
-            active_threads = threading.enumerate()
-            print(f"Active threads before starting runner {i}: {[t.name for t in active_threads]}")
-            
-        #client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log1.txt 2>&1 &')
-        #client.exec_command(f'cd {meow_base_path} && source /app/venv/bin/activate && nohup python3 {requested_runner} > log2.txt 2>&1 &')
-
-        # Redirect stdout and stderr of Remote to Local terminal ( Not needed when logging to file )
-        #print("Remote stdout:", stdout.read().decode())
-        #print("Remote stderr:", stderr.read().decode())
-
+            client.exec_command(cmd)
         client.close()
 
 
@@ -1453,8 +1470,11 @@ class MeowRunner:
         """ Looks for the JSON config file in the .netconfs folder, parses the file, and stores the local runner's Name and IP."""
 
         # These dirs are currently hard coded. Maybe a good idea to make it more robust and constimizable later
-        config_dir = "/workspaces/meow_base/meow_base/.netconfs"
-        #config_dir = "/home/rlf574/meow_base/meow_base/.netconfs"
+        if sys.version_info[:3] == (3, 12, 3):
+            config_dir = "/workspaces/meow_base/meow_base/.netconfs"
+        else:
+            user = os.environ.get("USER") or os.environ.get("USERNAME")
+            config_dir = f"/home/{user}/meow_base/meow_base/.netconfs"
         
         # Naming of the file is also hard coded atm, another idea could be to timestamp them and look for the latest one, (but maybe out of scope if we asume only ever one Remote Runner)
         config_file = os.path.join(config_dir, "transfered_network_config.json")
@@ -1465,6 +1485,7 @@ class MeowRunner:
                     config = json.load(f)
                 self.local_runner_name = config.get("name")
                 self.local_runner_ip = config.get("ip")
+                self.msg_port = config.get("msg_port")
                 print_debug(self._print_target, self.debug_level,
                             f"Loaded local runner config: Name = {self.local_runner_name}, IP = {self.local_runner_ip}",
                             DEBUG_INFO)
