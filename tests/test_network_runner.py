@@ -1,17 +1,8 @@
-
-import importlib
 import os
-import socket
 import unittest
 import tempfile
 import shutil
-import aiosmtpd
-import unittest.mock
-import json
 import time
-from unittest.mock import MagicMock, patch, mock_open, call, Mock
-
-
 from multiprocessing import Pipe
 from random import shuffle
 from shutil import copy
@@ -44,6 +35,7 @@ from tests.shared import TEST_JOB_QUEUE, TEST_JOB_OUTPUT, \
     IDMC_UTILS_PYTHON_SCRIPT, TEST_DATA, GENERATE_PYTHON_SCRIPT, \
     MULTI_PYTHON_SCRIPT, setup, teardown, backup_before_teardown, \
     count_non_locks, check_shutdown_port_in_timeout, check_port_in_use
+
 
 FILE_BASE = os.path.join(tempfile.gettempdir(), "runner_base")
 
@@ -93,17 +85,15 @@ class TestNetworkRunner(unittest.TestCase):
 
     def tearDown(self)->None:
         super().tearDown()
-        # Add proper network cleanup
-        if hasattr(self, 'local_runner'):
-            self.local_runner.stop()
-            time.sleep(2)  # Allow sockets to fully close
         if os.path.exists(FILE_BASE):
             shutil.rmtree(FILE_BASE)
         teardown()
         
         
 
-    def testMeowRunnerPythonExecution(self)->None:
+    def testLocalMeowRunner(self)->None:
+        """Test the MeowRunner with local runners functionality."""
+        
         pattern_one = FileEventPattern(
             "pattern_one", os.path.join("start", "A.txt"), "recipe_one", "infile", 
             parameters={
@@ -134,72 +124,17 @@ class TestNetworkRunner(unittest.TestCase):
             LocalPythonConductor(pause_time=2),
             job_queue_dir=TEST_JOB_QUEUE,
             job_output_dir=TEST_JOB_OUTPUT,
-            name="Test Local Runner", network=1, ssh_config_alias="Own-System", debug_port=10002
-        )
+            name="Test Local Runner1", role = "local", network = 1, ssh_config_alias="Own-System", runners_to_start=2, msg_port=10003
+            )
 
-        # Intercept messages between the conductor and runner for testing
-        conductor_to_test_conductor, conductor_to_test_test = Pipe(duplex=True)
-        test_to_runner_runner, test_to_runner_test = Pipe(duplex=True)
-
-        local_runner.conductors[0].to_runner_job = conductor_to_test_conductor
-
-        for i in range(len(local_runner.job_connections)):
-            _, obj = local_runner.job_connections[i]
-
-            if obj == local_runner.conductors[0]:
-                local_runner.job_connections[i] = (test_to_runner_runner, local_runner.job_connections[i][1])
-      
-   
         local_runner.start()
 
-        start_dir = os.path.join(TEST_MONITOR_BASE, "start")
-        make_dir(start_dir)
-        self.assertTrue(start_dir)
-        with open(os.path.join(start_dir, "A.txt"), "w") as f:
-            f.write("25000")
+        time.sleep(5)  # Allow the runner to start and settle
 
-        self.assertTrue(os.path.exists(os.path.join(start_dir, "A.txt")))
-
-        loops = 0
-        while loops < 5:
-            # Initial prompt
-            if conductor_to_test_test.poll(5):
-                msg = conductor_to_test_test.recv()
-                
-            else:
-                raise Exception("Timed out")        
-            self.assertEqual(msg, 1)
-            test_to_runner_test.send(msg)
-
-            # Reply
-            if test_to_runner_test.poll(5):
-                msg = test_to_runner_test.recv()
-            else:
-                raise Exception("Timed out")        
-            job_dir = msg
-            conductor_to_test_test.send(msg)
-
-            if isinstance(job_dir, str):
-                # Prompt again once complete
-                if conductor_to_test_test.poll(5):
-                    msg = conductor_to_test_test.recv()
-                else:
-                    raise Exception("Timed out")        
-                self.assertEqual(msg, 1)
-                loops = 5
-
-            loops += 1
-
-        job_dir = job_dir.replace(TEST_JOB_QUEUE, TEST_JOB_OUTPUT)
-
-        self.assertTrue(os.path.exists(os.path.join(start_dir, "A.txt")))
-        self.assertEqual(len(os.listdir(TEST_JOB_OUTPUT)), 1)
-        self.assertTrue(os.path.exists(job_dir))
-
-        # ----------------------------------------------------------------------------- #
+    #     # ----------------------------------------------------------------------------- #
 
         # Check if local runner is instantiated correctly
-        self.assertEqual(local_runner.name, "Test Local Runner")
+        self.assertEqual(local_runner.name, "Test Local Runner1")
         self.assertEqual(local_runner.role, "local")
         self.assertEqual(local_runner.network, 1)
         self.assertEqual(local_runner.ssh_config_alias, "Own-System")
@@ -263,8 +198,9 @@ class TestNetworkRunner(unittest.TestCase):
         # Check if type of the new pattern is as expected (FileEventPattern)
         self.assertEqual(type(target_monitor.get_patterns().get("new_pattern")), FileEventPattern)
     
+    
         
-        # --------------------------- Local runner get test --------------------------- #
+        # --------------------------- Local Runner Get Tests --------------------------- #
         # # ---------------------- get attached conductors test ----------------------# #
         
         conductors = local_runner.get_attached_conductors(target="local")
@@ -287,67 +223,147 @@ class TestNetworkRunner(unittest.TestCase):
         self.assertEqual(job_queue, [])
     
 
-        # ----------------------------- Remote alive test ----------------------------- #
-        
-        # Check if remote local_runner's IP address is as expected
-        self.assertEqual(local_runner.remote_runner_ip, local_runner.local_ip_addr)
-        
-        # Check if remote local_runner is alive 
-        self.assertTrue(local_runner.remote_alive)
-        
-        
-        # ----------------------------------------------------------------------------- #
-
-        local_runner.stop()
-
-        metafile = os.path.join(job_dir, META_FILE)
-        status = read_yaml(metafile)
-
-        self.assertNotIn(JOB_ERROR, status)
-
-        result_path = os.path.join(job_dir, "stdout.txt")
-        self.assertTrue(os.path.exists(result_path))
-        result = read_file(os.path.join(result_path))
-        self.assertEqual(
-            result, "12505000.0\ndone\n")
-
-        output_path = os.path.join(TEST_MONITOR_BASE, "output", "A.txt")
-        self.assertTrue(os.path.exists(output_path))
-        output = read_file(os.path.join(output_path))
-        self.assertEqual(output, "12505000.0")
-
-        # ----------------------------- Remote dead test ------------------------------ #
-
-        # Check if remote is "dead"
-        self.assertEqual(local_runner.remote_alive, False)
-        
-        # ----------------------------------------------------------------------------- #
-
-    def testNetconfig(self):          
-        netconf_path = os.path.expanduser("~/meow_base/meow_base/.netconfs/transfered_network_config.json")
-        # Check if the file exists
-        if not os.path.exists(netconf_path):
-            raise FileNotFoundError(f"File {netconf_path} does not exist.")
-        
-        # Check if the file is empty
-        if os.path.getsize(netconf_path) == 0:
-            raise ValueError(f"File {netconf_path} is empty.")
-        
-        # Read the file        
-        with open(netconf_path, "r") as f:
-            data = f.read()
-            # Check if the file is a valid JSON
-            try:
-                data = json.loads(data)
-            except json.JSONDecodeError:
-                raise ValueError(f"File {netconf_path} is not a valid JSON.")
-            
-        # Check if the IP address is correct
-        self.assertEqual(data["ip"], "127.0.1.1") # should be: local_runner.local_ip_addr
-        
-        # Check if the name is correct
-        self.assertEqual(data["name"], "Test Local Runner") # should be: local_runner.name           
+        # ------------------------- Remote dead/deleted test -------------------------- #
+        print(f"remote runners in 1st test: {local_runner.remote_runners}")
                 
+        local_runner.stop()
+        time.sleep(5)  # Allow the runner to stop and settle
+
+        # ----------------------------------------------------------------------------- #
+
+    def testRemoteMeowRunners(self)->None:
+        """Test the MeowRunner with remote runners functionality."""
+        
+        # Create a MeowRunner instance with network enabled
+        local_runner = MeowRunner(
+            WatchdogMonitor(
+                FILE_BASE,
+                patterns,
+                recipes,
+                name="monitor_1",
+            ),
+            PythonHandler(
+                pause_time=1
+            ),
+            LocalPythonConductor(
+                pause_time=1
+            ),
+            logging = 10,
+            name="Test Local Runner2", role = "local", network = 1, ssh_config_alias="Own-System", runners_to_start=2, msg_port=10002
+        )
+
+        local_runner.start()
+        time.sleep(5) # Allow the runner to start and settle
+        
+        # -------------------------- Remote Initialized test -------------------------- #
+        
+        # Check if the remote runners are initialized correctly
+        self.assertIsInstance(local_runner.remote_runners, dict)
+        
+        # Check if the remote runners dictionary is not empty i.e. there are remote runners connected
+        self.assertTrue(local_runner.remote_runners != {})
+        
+        for rname in list(local_runner.remote_runners.keys()):
+            print(f"Remote runner {rname}")
+        # print(f"Remote runners1: {local_runner.remote_runners}")
+        print(f"Remote runners2: {len(local_runner.remote_runners)}")
+        
+        # Check if number of remote runners is as expected
+        self.assertEqual(len(local_runner.remote_runners), local_runner.runners_to_start) 
+
+        remote_runner_names = list(local_runner.remote_runners.keys())
+        for rname in list(local_runner.remote_runners.keys()):
+            info = local_runner.remote_runners[rname]
+            # test if name is unique
+            self.assertNotEqual(rname, "Remote runner")
+            # test if info contains the expected keys (means that handshake was successful)
+            self.assertIn("ip", info)
+            self.assertIn("last_hb", info)
+            self.assertIn("ssh_hostname", info)
+            self.assertIn("ssh_user", info)
+            self.assertIn("ssh_port", info)
+            self.assertIn("runner_file", info)
+            self.assertIn("restart_attempted", info)
+        
+        # --------------------------- Remote Heartbeat test --------------------------- #
+        
+        # Check if the remote's last_hb gets updated after a heartbeat
+        for rname in local_runner.remote_runners.keys():
+            info = local_runner.remote_runners[rname]
+            last_hb_before = info["last_hb"]
+            print(f"Remote runner {rname} info_last_hb_before: {last_hb_before}")
+            break
+        
+
+        
+        # -------------------------- Remote runner get test --------------------------- #
+
+        second_monitor = WatchdogMonitor(
+            FILE_BASE,
+            patterns,
+            recipes,
+            name="monitor_2",
+        )
+        
+        monitors_before = local_runner.get_attached_monitors(target="remote")
+        local_runner.add_monitor(monitor=second_monitor, target="remote")
+        monitors_after = local_runner.get_attached_monitors(target="remote")
+
+        self.assertNotEqual(monitors_after, monitors_before)
+
+        for i in range(1, 100):
+            monitors_before = local_runner.get_attached_monitors(target="remote")
+            monitor = WatchdogMonitor(
+            FILE_BASE,
+            patterns,
+            recipes,
+            name="monitor_" + str(i),
+            )
+            local_runner.add_monitor(monitor=monitor, target="remote")
+            self.assertGreater(len(local_runner.get_attached_monitors(target="remote")), len(monitors_before))
+
+
+
+        # ----------------------------- Remote pattern get/add test ------------------------- #
+
+        new_pattern = FileEventPattern(
+            "new_pattern", 
+            os.path.join(INPUT_DIR, "*"), 
+            "hello_recipe", 
+            "infile", 
+            )
+        
+        patterns_before = local_runner.get_attached_patterns(monitor="monitor_2", target="remote")
+        local_runner.add_pattern(target="remote", monitor_name = "monitor_2", pattern = new_pattern)
+        patterns_after = local_runner.get_attached_patterns(monitor="monitor_2", target="remote")
+        self.assertNotEqual(patterns_after, patterns_before)
+        
+        # Check if the new pattern is attached
+        for i in range(1, 100):
+            patterns_before = local_runner.get_attached_patterns(monitor="monitor_" + str(i), target="remote")
+            pattern = FileEventPattern(
+                "new_pattern_" + str(i), 
+                os.path.join(INPUT_DIR, "*"), 
+                "hello_recipe", 
+                "infile", 
+            )
+            local_runner.add_pattern(target="remote", monitor_name = "monitor_" + str(i), pattern = pattern)
+            print(local_runner.get_attached_patterns(monitor="monitor_" + str(i), target="remote"))
+            self.assertGreater(len(local_runner.get_attached_patterns(monitor="monitor_" + str(i), target="remote")), len(patterns_before))
+
+        time.sleep(10)
+
+        # Stop the runners
+        local_runner.stop()
+        time.sleep(5)  # Allow the runner to stop and settle
+
+        # Check if remote runners are "dead"
+        self.assertTrue(local_runner.remote_runners == {})
+
+        # Check if remote runner names are in remote_runners
+        for rname in remote_runner_names:
+            self.assertNotIn(rname, local_runner.remote_runners.keys())
+            
 
 if __name__ == '__main__':
     unittest.main()

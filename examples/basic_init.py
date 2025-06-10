@@ -1,11 +1,7 @@
 import os
 import shutil
-import sys
 import time
-
-
 from pathlib import Path
-
 from meow_base.patterns import FileEventPattern, WatchdogMonitor
 from meow_base.recipes import PythonRecipe, PythonHandler
 from meow_base.conductors import LocalPythonConductor
@@ -69,8 +65,8 @@ local_runner = MeowRunner(
     LocalPythonConductor(
         pause_time=1
     ),
-    logging = 10,
-    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container")
+    logging = 20,
+    name="Local Runner", role = "local", network = 1, ssh_config_alias="Container", runners_to_start=5)
 
 second_monitor = WatchdogMonitor(
         FILE_BASE,
@@ -78,23 +74,24 @@ second_monitor = WatchdogMonitor(
         recipes,
         name="monitor_2",
     )
+
 local_runner.start()
+time.sleep(5) # Sleep to let runner initialize
 
-time.sleep(10)
+# Gets the attached monitors, patterns, recipes, and handlers from all runners
+local_runner.get_queue(target="remote")
+local_runner.get_attached_conductors(target="remote")
+local_runner.get_attached_handlers(target="remote")
+local_runner.get_attached_monitors(target="remote")
+time.sleep(2) # Simuates work
 
-#local_runner.get_queue(target="remote")
-local_runner.get_attached_conductors()
-#local_runner.get_attached_handlers()
-#local_runner.get_attached_monitors(target="remote")
+# Add a pattern and monitor to the remote runner
+local_runner.add_monitor(target = "remote", monitor = second_monitor)
 time.sleep(2)
-#local_runner.add_monitor(target = "remote", monitor = second_monitor)
-#time.sleep(5)
-#local_runner.get_attached_monitors("remote")
-
-#local_runner.add_pattern(target="remote", monitor_name = "monitor_1", pattern = new_pattern)
-#local_runner.get_attached_patterns(target="remote", monitor = "monitor_1")
-#time.sleep(10)
-
-
+local_runner.get_attached_monitors("remote")
+time.sleep(2)
+local_runner.add_pattern(target="remote", monitor_name = "monitor_1", pattern = new_pattern)
+local_runner.get_attached_patterns(target="remote", monitor = "monitor_1")
+time.sleep(10) # Sleep to let remotes send a heartbeat
 
 local_runner.stop()

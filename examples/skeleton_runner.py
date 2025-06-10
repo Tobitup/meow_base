@@ -5,7 +5,7 @@ from meow_base.conductors import LocalPythonConductor
 from meow_base.core import MeowRunner
 import time
 
-#host_ip = os.environ.get("HOST_IP")
+# A Runner example file that can be started as a remote on a remote machine.
 
 FILE_BASE = "runner_base"
 INPUT_DIR = "input_dir"
@@ -50,35 +50,14 @@ remote_runner = MeowRunner(
     ),
     logging = 10,
     role="remote",
-    network = 1
+    network = 1 # Set to active networking options
 )
 
-# Currnetly needed to set the host IP back to the local machine
-#remote_runner.ip_addr = host_ip
-
-# remote_runner.ip_addr = "127.0.0.1"
-# remote_runner.debug_port = 10002
-
-
 remote_runner.start()
-# remote_runner.send_message("Hello from remote!")
-# remote_runner.open_remote_handshake_socket_async()
+time.sleep(1) # Gives runner time to start up
 
-#remote_runner.send_attached_conductors()
-#remote_runner.send_attached_handlers()
-#remote_runner.send_attached_monitors()
 
-#print(f"Name of Local Runner: {remote_runner.local_runner_name}")
-#print(f"IP of Local Runner: {remote_runner.local_runner_ip}")
-
-time.sleep(20)
-
-# Used tomorrow to test if we can keep this running indefinitely, and then find a way to send a kill command to the remote, probably by saying when .stop is called on local, remotes should stop too.
+# Simulate work being done
 while remote_runner.network:
    time.sleep(1)
 
-#print("Remote Runner is alive:", remote_runner.remote_alive)
-
-#remote_runner.check_remote_runner_alive()
-
-# remote_runner.stop()
