@@ -63,7 +63,7 @@ class MeowRunner:
             name: Optional[str] = None, role:str="local",
 
             # Added Network Options
-            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), msg_port:int=10001, debug_port:int=10002, hb_port:int=10005,
+            network:int=0, ssh_config_alias:Any=None, ssh_private_key_dir:Any=os.path.expanduser("~/.ssh/id_ed25519"), msg_port:int=10001, rr_port:int=10002, hb_port:int=10005,
             runner_file_name:str=None, runners_to_start:int=1 )->None:
         """MeowRunner constructor. This connects all provided monitors, 
         handlers and conductors according to what events and jobs they produce 
@@ -83,7 +83,7 @@ class MeowRunner:
         self.remote_runners: Dict[str, Dict[str, Any]] = {}  # Remote Runner dictonary
 
         self.msg_port = msg_port        # Port local Runner listens to for messages from remotes
-        self.debug_port = debug_port    # Port set by remote Runners to store the IP assigned to them by the OS
+        self.rr_port = rr_port          # Port set by remote Runners to store the IP assigned to them by the OS
 
 
         self._is_valid_job_queue_dir(job_queue_dir)
@@ -193,6 +193,18 @@ class MeowRunner:
             f"Added pattern {pattern.name} to monitor {monitor_name}.", DEBUG_INFO)
         return
 
+
+    def _delete_local_pattern(self, monitor_name:str, pattern:str)->None:
+        """Function to delete a local pattern from a Monitor attached to a runner"""
+        desired_monitor = self.get_monitor_by_name(monitor_name)
+        if desired_monitor is None:
+            msg = f"Monitor with name {monitor_name} not found."
+            print_debug(self._print_target, self.debug_level,
+                        msg, DEBUG_WARNING)
+            raise ValueError(msg)
+        desired_monitor.remove_pattern(pattern)
+        print_debug(self._print_target, self.debug_level,
+                    f"Deleted pattern {pattern} from monitor {monitor_name}.", DEBUG_INFO)
 
 
     def _add_local_monitor(self, monitor:BaseMonitor)->None:
@@ -363,7 +375,7 @@ class MeowRunner:
             s.bind((self.local_ip_addr, 0))
             # OS assigns an available port, and that port is stored for later transmition to the local Runner
             actual_port = s.getsockname()[1]
-            self.debug_port = actual_port
+            self.rr_port = actual_port
             print_debug(self._print_target, self.debug_level,
                 f"Remote listener thread bound to port {actual_port}", DEBUG_INFO)
             s.listen(128)
@@ -1035,6 +1047,21 @@ class MeowRunner:
                             self.last_network_communication = time.time()
                         break    
 
+                    # Handles deleing a pattern attached to a monitor on the remote Runner
+                    elif msg_data.get("type") == "delete_pattern" and self.role == "remote":
+                        try:
+                            monitor_name = msg_data.get("monitor")
+                            recv_pattern = msg_data.get("pattern_name")
+                            self._delete_local_pattern(monitor_name, recv_pattern)
+                            conn.sendall(json.dumps({"Success":"Deleted pattern from specified monitor"}).encode())
+                            self.last_network_communication = time.time()
+                        except Exception as e:
+                            print_debug(self._print_target, self.debug_level,
+                                        f"Failed to delete pattern: {e}", DEBUG_WARNING)
+                            conn.sendall(json.dumps({"Failed":"Unable to delete pattern"}).encode())
+                            self.last_network_communication = time.time()
+                        break 
+
 
                     # Handles getting all patterns attached to a monitor on the remote Runner
                     elif msg_data.get("type") == "get_patterns" and self.role == "remote":
@@ -1075,7 +1102,7 @@ class MeowRunner:
             "role": self.role,
             "name": self.name,
             "ip": self.local_ip_addr,
-            "port": self.debug_port
+            "port": self.rr_port
         }
         print_debug(self._print_target, self.debug_level,
             "Sending handshake", DEBUG_INFO)
@@ -1189,7 +1216,7 @@ class MeowRunner:
                     return
                     
 
-    def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=1):
+    def heartbeat_timeout_check(self, hb_timeout:int, hb_check_interval:int=5):
         """Function to periodically check if 'hb_timeout' seconds have passed since
             last heartbeat recieved from the local Runner. If yes, assume local dead
             and shutdown this Runner."""
@@ -1246,7 +1273,7 @@ class MeowRunner:
 
         config = {
             "name": self.name,
-            "ip": self.local_ip_addr,
+            "ip": "192.168.94.138",
             "msg_port": self.msg_port
         }
         conf_file = os.path.join(config_dir, "network_config.json")
@@ -1773,6 +1800,32 @@ class MeowRunner:
                     return
             return
         raise ValueError(f"Unknown target “{target}” for add_pattern()")
+    
+    def delete_pattern(self, monitor_name:str, pattern:str, target:str="local") -> None:
+        """Function to delete a pattern from the local or remote monitor"""
+        if target == "local":
+            return self._delete_local_pattern(monitor_name, pattern)
+        if target == "remote":
+            msg = {
+                "type": "delete_pattern",
+                "requested by": self.name,
+                "monitor": monitor_name,
+                "pattern_name": pattern
+            }
+            for rname, rinfo in list(self.remote_runners.items()):
+                try:
+                    print_debug(self._print_target, self.debug_level,
+                        f"Deleting pattern from {monitor_name} attached to {rname}", DEBUG_INFO)
+                    responds = self.send_and_recieve_json_msg(rinfo["ip"], rinfo["port"], msg)
+                    print_debug(self._print_target, self.debug_level,
+                        f"[{rname}] Response: {responds}", DEBUG_INFO)
+                    continue
+                except Exception as e:
+                    print_debug(self._print_target, self.debug_level,
+                        f"Failed to delete pattern from {rname}: {e}", DEBUG_WARNING)
+                    return
+            return
+        raise ValueError(f"Unknown target “{target}” for delete_pattern()")
     
 
     def get_attached_patterns(self, monitor:str=None, target:str="local") -> None:
